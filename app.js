@@ -1078,8 +1078,8 @@ if (systemProfilesGrid) {
       systemEditDescription.value = profile.description;
       if (systemEditTags) systemEditTags.value = profile.tags || '';
       if (systemEditCustomFields) systemEditCustomFields.value = profile.customFields || '';
-      systemEditColor.value = profile.color;
-      if (systemEditColorPicker) systemEditColorPicker.value = normalizeHexColor(profile.color, '#6c63ff');
+      systemEditColor.value = normalizeHexColor(profile.color, '#6c63ff');
+      syncColorValuePill(systemEditColor);
       systemEditBanner.value = profile.banner;
       systemEditPhoto.value = profile.profilePhoto;
       if (systemEditTrustLevel) systemEditTrustLevel.value = profile.trustLevel || 'private';
@@ -1136,7 +1136,7 @@ if (addSystemProfileBtn) {
     if (systemEditTags) systemEditTags.value = 'Not set';
     if (systemEditCustomFields) systemEditCustomFields.value = 'Not set';
     systemEditColor.value = '#6c63ff';
-    if (systemEditColorPicker) systemEditColorPicker.value = '#6c63ff';
+    syncColorValuePill(systemEditColor);
     systemEditBanner.value = `${defaultName} Banner`;
     systemEditPhoto.value = defaultName[0].toUpperCase();
     if (systemEditTrustLevel) systemEditTrustLevel.value = 'private';
@@ -1159,8 +1159,8 @@ if (addSystemFromTemplateBtn) {
     systemEditDescription.value = template.description || 'No description set.';
     if (systemEditTags) systemEditTags.value = template.category || 'Not set';
     if (systemEditCustomFields) systemEditCustomFields.value = template.defaultContent || 'Not set';
-    systemEditColor.value = template.color || '#6c63ff';
-    if (systemEditColorPicker) systemEditColorPicker.value = normalizeHexColor(systemEditColor.value, '#6c63ff');
+    systemEditColor.value = normalizeHexColor(template.color || '#6c63ff', '#6c63ff');
+    syncColorValuePill(systemEditColor);
     systemEditBanner.value = template.banner || `${templatedName} Banner`;
     systemEditPhoto.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
     systemProfileEditor.hidden = false;
@@ -3531,7 +3531,7 @@ function renderFieldInput(field, id, safeValue) {
 
   if (field.key === 'color') {
     const color = normalizeHexColor(safeValue, '#6c63ff');
-    return `<label>${field.label}<div class="color-input-row"><input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || color))}" placeholder="#6c63ff" /><input type="color" id="${id}Picker" data-color-target="${id}" value="${color}" /></div></label>`;
+    return `<label>${field.label}<div class="color-input-row"><input class="setting-input setting-input-color" id="${id}" type="color" value="${color}" /><span class="color-value-pill" data-color-value-for="${id}">${escapeHtml(color.toUpperCase())}</span></div></label>`;
   }
   if (field.type === 'textarea') {
     const helper = field.key === 'customFields'
@@ -3548,21 +3548,31 @@ function renderFieldInput(field, id, safeValue) {
   return `<label>${field.label}<input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || ''))}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''} /></label>`;
 }
 
+function syncColorValuePill(input, fallback = '#6c63ff') {
+  if (!input) return;
+  const color = normalizeHexColor(input.value, fallback);
+  if (input.value !== color) input.value = color;
+
+  const row = input.closest('.color-input-row');
+  const pill = (row && input.id ? row.querySelector(`[data-color-value-for="${input.id}"]`) : null)
+    || (input.id ? document.getElementById(`${input.id}Value`) : null);
+
+  if (pill) pill.textContent = color.toUpperCase();
+}
+
 function bindColorPickers(container) {
   if (!container) return;
-  container.querySelectorAll('input[type="color"][data-color-target]').forEach((picker) => {
-    const targetId = picker.getAttribute('data-color-target');
-    const textInput = targetId ? document.getElementById(targetId) : null;
-    if (!textInput) return;
+  container.querySelectorAll('input[type="color"]').forEach((picker) => {
+    syncColorValuePill(picker);
+    if (picker.dataset.colorBound === 'true') return;
 
     picker.addEventListener('input', () => {
-      textInput.value = picker.value;
+      syncColorValuePill(picker);
     });
-
-    textInput.addEventListener('input', () => {
-      const value = textInput.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(value)) picker.value = value;
+    picker.addEventListener('change', () => {
+      syncColorValuePill(picker);
     });
+    picker.dataset.colorBound = 'true';
   });
 }
 
@@ -7206,7 +7216,10 @@ function renderThemeTokenGrid(mode, container) {
     return `
       <div class="theme-token-field">
         <input type="color" data-theme-mode="${mode}" data-theme-key="${token.key}" value="${value}" title="${escapeHtml(token.label)}" />
-        <input type="text" class="setting-input" data-theme-mode="${mode}" data-theme-key="${token.key}" value="${escapeHtml(value)}" title="${escapeHtml(token.label)}" />
+        <div class="theme-token-meta">
+          <strong>${escapeHtml(token.label)}</strong>
+          <span data-theme-value data-theme-mode="${mode}" data-theme-key="${token.key}">${escapeHtml(value.toUpperCase())}</span>
+        </div>
       </div>
     `;
   }).join('');
@@ -7238,17 +7251,20 @@ function syncThemeTokenInputs(container) {
   container.querySelectorAll('input[type="color"][data-theme-key]').forEach((picker) => {
     const mode = picker.getAttribute('data-theme-mode');
     const key = picker.getAttribute('data-theme-key');
-    const textInput = container.querySelector(`input[type="text"][data-theme-mode="${mode}"][data-theme-key="${key}"]`);
-    if (!textInput) return;
+    const valueLabel = container.querySelector(`span[data-theme-value][data-theme-mode="${mode}"][data-theme-key="${key}"]`);
 
-    picker.addEventListener('input', () => {
-      textInput.value = picker.value;
-    });
+    const syncValue = () => {
+      const val = normalizeHexColor(picker.value, mode === 'light' ? '#6c63ff' : '#8b85ff');
+      if (picker.value !== val) picker.value = val;
+      if (valueLabel) valueLabel.textContent = val.toUpperCase();
+    };
 
-    textInput.addEventListener('input', () => {
-      const val = textInput.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(val)) picker.value = val;
-    });
+    syncValue();
+    if (picker.dataset.themeBound === 'true') return;
+
+    picker.addEventListener('input', syncValue);
+    picker.addEventListener('change', syncValue);
+    picker.dataset.themeBound = 'true';
   });
 }
 
@@ -7309,7 +7325,7 @@ if (applyCustomThemeTokensBtn) {
       const next = { ...base };
       if (!container) return next;
       THEME_TOKEN_META.forEach((token) => {
-        const input = container.querySelector(`input[type="text"][data-theme-mode="${mode}"][data-theme-key="${token.key}"]`);
+        const input = container.querySelector(`input[type="color"][data-theme-mode="${mode}"][data-theme-key="${token.key}"]`);
         if (!input) return;
         next[token.key] = normalizeHexColor(input.value.trim(), base[token.key]);
       });
@@ -7876,12 +7892,12 @@ applyThemeSelection();
 applyModuleVisibilitySettings();
 syncSessionFromBackend();
 
-if (systemEditColorPicker && systemEditColor) {
-  systemEditColorPicker.addEventListener('input', () => {
-    systemEditColor.value = systemEditColorPicker.value;
-  });
+if (systemEditColor) {
+  syncColorValuePill(systemEditColor);
   systemEditColor.addEventListener('input', () => {
-    const val = systemEditColor.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(val)) systemEditColorPicker.value = val;
+    syncColorValuePill(systemEditColor);
+  });
+  systemEditColor.addEventListener('change', () => {
+    syncColorValuePill(systemEditColor);
   });
 }
