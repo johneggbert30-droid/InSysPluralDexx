@@ -1948,11 +1948,7 @@ function renderPartnerProfile(profile) {
 }
 
 function parsePartnerList(profile) {
-  return String(profile.connections || '')
-    .split(',')
-    .map((name) => name.trim())
-    .filter(Boolean)
-    .filter((name) => name.toLowerCase() !== 'not set');
+  return parseLinkedTextList(profile?.connections);
 }
 
 function parsePartnerHeadmateEntries(profile) {
@@ -2057,17 +2053,36 @@ function openPartnerHeadmateProfile(profile, headmateNameOrKey, userNameHint = '
 function renderPartnersDiagram() {
   if (!partnersDiagramCanvas) return;
 
-  const entries = Object.entries(partnerProfiles);
+  const entries = Object.entries(partnerProfiles)
+    .filter(([, profile]) => String(profile?.name || '').trim());
+
   if (!entries.length) {
     partnersDiagramCanvas.innerHTML = '<div class="headmate-hint" style="padding:14px">Add partners to generate the diagram.</div>';
     return;
   }
 
   const width = Math.max(680, partnersDiagramCanvas.clientWidth || 680);
-  const height = 400;
+  const ringCapacities = [];
+  let remaining = entries.length;
+  let ringIndex = 0;
+  while (remaining > 0) {
+    const capacity = 6 + ringIndex * 4;
+    ringCapacities.push(Math.min(capacity, remaining));
+    remaining -= capacity;
+    ringIndex += 1;
+  }
+
+  const ringCount = ringCapacities.length;
+  const height = Math.max(400, 320 + Math.max(0, ringCount - 1) * 108);
   const centerX = width / 2;
   const centerY = height / 2;
-  const radius = Math.max(118, Math.min(width, height) * 0.32);
+  const maxRadius = Math.max(112, Math.min(width / 2 - 94, height / 2 - 82));
+  const baseRadius = ringCount > 1
+    ? Math.max(104, maxRadius - (ringCount - 1) * 84)
+    : Math.max(112, Math.min(maxRadius, 136));
+  const radiusStep = ringCount > 1
+    ? Math.max(74, Math.min(96, (maxRadius - baseRadius) / Math.max(1, ringCount - 1)))
+    : 0;
   const activeSystem = systemProfiles[getActiveUserName()] || {};
   const palette = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#0984e3', '#e17055', '#a29bfe', '#00b894'];
   const selfNode = {
@@ -2079,28 +2094,44 @@ function renderPartnersDiagram() {
     y: centerY
   };
 
-  const nodes = entries.map(([key, profile], index) => {
-    const angle = (Math.PI * 2 * index) / entries.length - Math.PI / 2;
-    const fallbackColor = palette[index % palette.length];
-    return {
-      key,
-      name: profile.name,
-      type: profile.relationshipType || 'Unspecified',
-      color: normalizeHexColor(profile.color || fallbackColor, fallbackColor),
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius
-    };
+  const nodes = [];
+  let entryCursor = 0;
+
+  ringCapacities.forEach((count, currentRing) => {
+    const radius = ringCount === 1
+      ? baseRadius
+      : Math.min(maxRadius, baseRadius + currentRing * radiusStep);
+
+    for (let offset = 0; offset < count; offset += 1) {
+      const [key, profile] = entries[entryCursor];
+      const angle = (Math.PI * 2 * offset) / count - Math.PI / 2 + (currentRing % 2 ? Math.PI / Math.max(count, 2) : 0);
+      const fallbackColor = palette[entryCursor % palette.length];
+      const fullName = String(profile.name || key).trim();
+
+      nodes.push({
+        key,
+        name: fullName,
+        shortName: fullName.length > 18 ? `${fullName.slice(0, 15)}…` : fullName,
+        type: profile.relationshipType || 'Unspecified',
+        color: normalizeHexColor(profile.color || fallbackColor, fallbackColor),
+        x: centerX + Math.cos(angle) * radius,
+        y: centerY + Math.sin(angle) * radius
+      });
+
+      entryCursor += 1;
+    }
   });
 
-  const byName = new Map(nodes.map((node) => [node.name.toLowerCase(), node]));
+  const byName = new Map(nodes.map((node) => [normalizeLookupName(node.name), node]));
   const edges = [];
   const edgeSeen = new Set();
 
   nodes.forEach((node) => {
     edges.push({
+      kind: 'self',
       from: selfNode,
       to: node,
-      label: node.type || 'Partner',
+      label: '',
       color: node.color
     });
   });
@@ -2108,30 +2139,52 @@ function renderPartnersDiagram() {
   entries.forEach(([key, profile]) => {
     const from = nodes.find((node) => node.key === key);
     if (!from) return;
+
     parsePartnerList(profile).forEach((partnerName) => {
-      const to = byName.get(partnerName.toLowerCase());
+      const to = byName.get(normalizeLookupName(partnerName));
       if (!to || to.key === from.key) return;
+
       const edgeKey = [from.key, to.key].sort().join('|');
       if (edgeSeen.has(edgeKey)) return;
       edgeSeen.add(edgeKey);
+
       edges.push({
+        kind: 'connection',
         from,
         to,
-        label: profile.relationshipType || to.type || 'Link',
+        label: 'Shared link',
         color: from.color
       });
     });
   });
 
-  const edgeSvg = edges.map((edge) => {
-    const mx = (edge.from.x + edge.to.x) / 2;
-    const my = (edge.from.y + edge.to.y) / 2;
-    const labelWidth = Math.max(78, String(edge.label || '').length * 7.5 + 18);
+  const edgeSvg = edges.map((edge, index) => {
+    const dx = edge.to.x - edge.from.x;
+    const dy = edge.to.y - edge.from.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const midX = (edge.from.x + edge.to.x) / 2;
+    const midY = (edge.from.y + edge.to.y) / 2;
+    const isConnection = edge.kind === 'connection';
+    const normalX = -dy / length;
+    const normalY = dx / length;
+    const curve = isConnection ? Math.min(38, length * 0.16) : 0;
+    const controlX = midX + normalX * curve;
+    const controlY = midY + normalY * curve;
+    const label = String(edge.label || '').trim();
+    const safeLabel = label.length > 18 ? `${label.slice(0, 15)}…` : label;
+    const labelX = isConnection ? (edge.from.x + edge.to.x + controlX) / 3 : midX;
+    const labelY = isConnection ? (edge.from.y + edge.to.y + controlY) / 3 : midY;
+    const labelWidth = Math.max(76, safeLabel.length * 7.2 + 18);
+    const pathData = isConnection
+      ? `M ${edge.from.x} ${edge.from.y} Q ${controlX} ${controlY} ${edge.to.x} ${edge.to.y}`
+      : `M ${edge.from.x} ${edge.from.y} L ${edge.to.x} ${edge.to.y}`;
+
     return `
       <g>
-        <line class="partners-edge" x1="${edge.from.x}" y1="${edge.from.y}" x2="${edge.to.x}" y2="${edge.to.y}" style="stroke:${edge.color}" />
-        <rect class="partners-edge-label-bg" x="${mx - labelWidth / 2}" y="${my - 18}" width="${labelWidth}" height="18" rx="10" ry="10" style="stroke:${edge.color}" />
-        <text class="partners-edge-label" x="${mx}" y="${my - 5}">${escapeHtml(edge.label)}</text>
+        <title>${escapeHtml(label ? `${edge.from.name} → ${edge.to.name}: ${label}` : `${edge.from.name} → ${edge.to.name}`)}</title>
+        <path class="partners-edge ${isConnection ? 'partners-edge--connection' : 'partners-edge--self'}" d="${pathData}" style="stroke:${edge.color}" />
+        ${safeLabel ? `<rect class="partners-edge-label-bg" x="${labelX - labelWidth / 2}" y="${labelY - 18}" width="${labelWidth}" height="18" rx="10" ry="10" style="stroke:${edge.color}; opacity:${isConnection ? '0.94' : '0.82'}" />
+        <text class="partners-edge-label" x="${labelX}" y="${labelY - 5}">${escapeHtml(safeLabel)}</text>` : ''}
       </g>
     `;
   }).join('');
@@ -2142,25 +2195,39 @@ function renderPartnersDiagram() {
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase() || '')
       .join('') || 'P';
+
     return `
-      <g data-diagram-partner="${node.key}">
+      <g class="partners-node-group" data-diagram-partner="${node.key}">
+        <title>${escapeHtml(`${node.name} • ${node.type}`)}</title>
         <circle class="partners-node ${selectedPartnerKey === node.key ? 'selected' : ''}" cx="${node.x}" cy="${node.y}" r="29" style="fill: color-mix(in srgb, ${node.color} 24%, var(--surface) 76%); stroke:${node.color};" />
         <text class="partners-node-label" x="${node.x}" y="${node.y + 4}">${escapeHtml(initials)}</text>
-        <text class="partners-node-label" x="${node.x}" y="${node.y + 50}">${escapeHtml(node.name)}</text>
-        <text class="partners-node-label partners-node-label--type" x="${node.x}" y="${node.y + 64}">${escapeHtml(node.type)}</text>
+        <text class="partners-node-label partners-node-label--name" x="${node.x}" y="${node.y + 49}">${escapeHtml(node.shortName)}</text>
+        <text class="partners-node-label partners-node-label--type" x="${node.x}" y="${node.y + 63}">${escapeHtml(node.type)}</text>
       </g>
     `;
   }).join('');
 
   const selfNodeSvg = `
     <g data-diagram-self="true">
+      <title>${escapeHtml(selfNode.name)}</title>
       <circle class="partners-node self" cx="${selfNode.x}" cy="${selfNode.y}" r="35" style="stroke:${selfNode.color}" />
       <text class="partners-node-label" x="${selfNode.x}" y="${selfNode.y + 3}">YOU</text>
       <text class="partners-node-label partners-node-label--type" x="${selfNode.x}" y="${selfNode.y + 50}">${escapeHtml(selfNode.name)}</text>
     </g>
   `;
 
-  partnersDiagramCanvas.innerHTML = `<svg class="partners-diagram-svg" viewBox="0 0 ${width} ${height}">${edgeSvg}${selfNodeSvg}${nodeSvg}</svg>`;
+  const connectionCount = edges.filter((edge) => edge.kind === 'connection').length;
+  const legendMarkup = `
+    <div class="partners-diagram-legend">
+      <span class="partners-diagram-chip"><strong>${nodes.length}</strong> partner${nodes.length === 1 ? '' : 's'}</span>
+      <span class="partners-diagram-chip"><strong>${connectionCount}</strong> shared link${connectionCount === 1 ? '' : 's'}</span>
+      <span class="partners-diagram-chip">Solid lines = your system</span>
+      <span class="partners-diagram-chip">Dashed lines = partner links</span>
+      <span class="partners-diagram-chip">Click a node to open that profile</span>
+    </div>
+  `;
+
+  partnersDiagramCanvas.innerHTML = `<svg class="partners-diagram-svg" viewBox="0 0 ${width} ${height}">${edgeSvg}${selfNodeSvg}${nodeSvg}</svg>${legendMarkup}`;
 
   partnersDiagramCanvas.querySelectorAll('[data-diagram-partner]').forEach((group) => {
     group.addEventListener('click', () => {
@@ -2427,6 +2494,7 @@ if (savePartnerBtn) {
   savePartnerBtn.addEventListener('click', () => {
     const base = creatingPartner ? createDefaultPartnerProfile('Partner') : partnerProfiles[selectedPartnerKey];
     if (!base) return;
+    const previousName = String(base.name || '').trim();
     const updated = readPartnerEditorValues(base);
     const name = (updated.name || '').trim();
     if (!name) {
@@ -2447,6 +2515,9 @@ if (savePartnerBtn) {
       creatingPartner = false;
     } else {
       partnerProfiles[selectedPartnerKey] = updated;
+      if (normalizeLookupName(previousName) !== normalizeLookupName(name)) {
+        syncPartnerRelationshipReferences(previousName, name);
+      }
     }
 
     if (partnerEditor) partnerEditor.hidden = true;
@@ -2461,7 +2532,9 @@ if (deletePartnerBtn) {
       safeAlert('Select a partner first.');
       return;
     }
-    if (!safeConfirm(`Delete partner ${partnerProfiles[selectedPartnerKey].name}?`)) return;
+    const partnerName = String(partnerProfiles[selectedPartnerKey].name || '').trim();
+    if (!safeConfirm(`Delete partner ${partnerName}?`)) return;
+    syncPartnerRelationshipReferences(partnerName);
     delete partnerProfiles[selectedPartnerKey];
     selectedPartnerKey = null;
     creatingPartner = false;
@@ -3151,12 +3224,70 @@ function parseLinkedTextList(value) {
     .filter((part) => !['not set', 'none', 'n/a'].includes(part.toLowerCase()));
 }
 
+function setCommaLinkValues(values) {
+  const seen = new Set();
+  const list = Array.isArray(values) ? values : parseLinkedTextList(values);
+  const cleaned = list
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const normalized = normalizeLookupName(item);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  return cleaned.length ? cleaned.join(', ') : 'Not set';
+}
+
 function appendCommaLinkValue(existing, nextValue) {
   const values = parseLinkedTextList(existing);
   if (!values.some((item) => normalizeLookupName(item) === normalizeLookupName(nextValue))) {
     values.push(nextValue);
   }
-  return values.length ? values.join(', ') : 'Not set';
+  return setCommaLinkValues(values);
+}
+
+function replaceCommaLinkValue(existing, previousValue, nextValue) {
+  return setCommaLinkValues(
+    parseLinkedTextList(existing).map((item) => (
+      normalizeLookupName(item) === normalizeLookupName(previousValue) ? nextValue : item
+    ))
+  );
+}
+
+function removeCommaLinkValue(existing, valueToRemove) {
+  return setCommaLinkValues(
+    parseLinkedTextList(existing).filter((item) => normalizeLookupName(item) !== normalizeLookupName(valueToRemove))
+  );
+}
+
+function syncPartnerRelationshipReferences(previousName, nextName = '') {
+  const oldName = String(previousName || '').trim();
+  const newName = String(nextName || '').trim();
+  if (!oldName) return;
+
+  Object.values(partnerProfiles).forEach((profile) => {
+    profile.connections = newName
+      ? replaceCommaLinkValue(profile.connections, oldName, newName)
+      : removeCommaLinkValue(profile.connections, oldName);
+
+    const updatedLinkedProfiles = parseLinkedTextList(profile.linkedProfiles)
+      .map((item) => {
+        const match = item.match(/^Partner:\s*(.+)$/i);
+        if (!match) return item;
+        if (normalizeLookupName(match[1]) !== normalizeLookupName(oldName)) return item;
+        return newName ? `Partner: ${newName}` : '';
+      })
+      .filter(Boolean);
+
+    profile.linkedProfiles = setCommaLinkValues(updatedLinkedProfiles);
+  });
+
+  Object.values(getActiveHeadmateProfiles()).forEach((headmate) => {
+    headmate.partners = newName
+      ? replaceCommaLinkValue(headmate.partners, oldName, newName)
+      : removeCommaLinkValue(headmate.partners, oldName);
+  });
 }
 
 function resolveProfileReference(part) {
