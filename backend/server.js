@@ -15,6 +15,7 @@ const DATA_FILE = path.join(DATA_DIR, 'users.json');
 const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 1024 * 1024);
 const MAX_SYSTEMS_PER_ACCOUNT = Number(process.env.MAX_SYSTEMS_PER_ACCOUNT || 10);
 const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT || 2000);
+const REMOVED_ACCOUNT_USERNAMES = new Set(['pandorasbox']);
 
 app.use(cors({
   origin: FRONTEND_ORIGIN
@@ -32,10 +33,68 @@ function ensureDataFile() {
   }
 }
 
+function sanitizeStore(store = { users: {} }) {
+  const safeStore = store && typeof store === 'object' ? store : { users: {} };
+  if (!safeStore.users || typeof safeStore.users !== 'object' || Array.isArray(safeStore.users)) {
+    safeStore.users = {};
+  }
+
+  let changed = false;
+  Object.keys(safeStore.users).forEach((username) => {
+    const normalized = String(username || '').trim().toLowerCase();
+    if (!normalized || REMOVED_ACCOUNT_USERNAMES.has(normalized)) {
+      delete safeStore.users[username];
+      changed = true;
+      return;
+    }
+    if (username !== normalized) {
+      safeStore.users[normalized] = safeStore.users[username];
+      delete safeStore.users[username];
+      changed = true;
+    }
+  });
+
+  Object.values(safeStore.users).forEach((user) => {
+    if (!user || typeof user !== 'object') return;
+    const normalizedUsername = String(user.username || '').trim().toLowerCase();
+    if (normalizedUsername && user.username !== normalizedUsername) {
+      user.username = normalizedUsername;
+      changed = true;
+    }
+
+    if (!user.friends || typeof user.friends !== 'object' || Array.isArray(user.friends)) {
+      user.friends = {};
+      changed = true;
+      return;
+    }
+
+    Object.keys(user.friends).forEach((friendUsername) => {
+      const normalizedFriend = String(friendUsername || '').trim().toLowerCase();
+      if (!normalizedFriend || REMOVED_ACCOUNT_USERNAMES.has(normalizedFriend) || !safeStore.users[normalizedFriend]) {
+        delete user.friends[friendUsername];
+        changed = true;
+        return;
+      }
+      if (friendUsername !== normalizedFriend) {
+        user.friends[normalizedFriend] = user.friends[friendUsername];
+        delete user.friends[friendUsername];
+        changed = true;
+      }
+    });
+  });
+
+  return { safeStore, changed };
+}
+
 function readStore() {
   ensureDataFile();
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const { safeStore, changed } = sanitizeStore(parsed);
+    if (changed) {
+      fs.writeFileSync(DATA_FILE, JSON.stringify(safeStore, null, 2));
+    }
+    return safeStore;
   } catch (_err) {
     return { users: {} };
   }
@@ -43,7 +102,8 @@ function readStore() {
 
 function writeStore(store) {
   ensureDataFile();
-  fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
+  const { safeStore } = sanitizeStore(store);
+  fs.writeFileSync(DATA_FILE, JSON.stringify(safeStore, null, 2));
 }
 
 const TRUST_LEVELS = ['public', 'friends', 'trusted', 'partners', 'private'];
@@ -172,6 +232,9 @@ app.post('/api/auth/signup', async (req, res) => {
   if (!/^[a-z0-9_-]{2,32}$/.test(username)) {
     return res.status(400).json({ error: 'Username must be 2-32 characters using letters, numbers, _ or -.' });
   }
+  if (REMOVED_ACCOUNT_USERNAMES.has(username)) {
+    return res.status(403).json({ error: 'That username is unavailable.' });
+  }
   if (password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
@@ -268,6 +331,9 @@ app.put('/api/me', authRequired, async (req, res) => {
   const requestedUsername = String(req.body?.username || currentUsername).trim().toLowerCase();
   if (!/^[a-z0-9_-]{2,32}$/.test(requestedUsername)) {
     return res.status(400).json({ error: 'Username must be 2-32 characters using letters, numbers, _ or -.' });
+  }
+  if (REMOVED_ACCOUNT_USERNAMES.has(requestedUsername)) {
+    return res.status(403).json({ error: 'That username is unavailable.' });
   }
   if (requestedUsername !== currentUsername && store.users[requestedUsername]) {
     return res.status(409).json({ error: 'That username is already taken.' });

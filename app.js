@@ -1533,6 +1533,256 @@ if (chatMessages) {
 }
 
 // =====================
+// Messages: Direct messages between account friends
+// =====================
+const messagesFriendSelect = document.getElementById('messagesFriendSelect');
+const messagesTableBody = document.getElementById('messagesTableBody');
+const directMessagesHeader = document.getElementById('directMessagesHeader');
+const directMessagesList = document.getElementById('directMessagesList');
+const directMessageInputBar = document.getElementById('directMessageInputBar');
+const directMessageInput = document.getElementById('directMessageInput');
+const sendDirectMessageBtn = document.getElementById('sendDirectMessageBtn');
+const openFriendsTabFromMessagesBtn = document.getElementById('openFriendsTabFromMessagesBtn');
+
+const directMessagesByAccount = {};
+let selectedDirectMessageFriend = '';
+
+function ensureDirectMessageAccountStore(accountUsername = loggedInAccountKey || '') {
+  const cleanAccount = String(accountUsername || '').trim().toLowerCase();
+  if (!cleanAccount) return {};
+  if (!directMessagesByAccount[cleanAccount]) directMessagesByAccount[cleanAccount] = {};
+  return directMessagesByAccount[cleanAccount];
+}
+
+function getDirectMessageThread(friendUsername, accountUsername = loggedInAccountKey || '') {
+  const cleanFriend = String(friendUsername || '').trim().toLowerCase();
+  if (!cleanFriend) return [];
+  const store = ensureDirectMessageAccountStore(accountUsername);
+  if (!store[cleanFriend]) store[cleanFriend] = [];
+  return store[cleanFriend];
+}
+
+function formatDirectMessageTime(ts, compact = false) {
+  if (!ts) return '—';
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '—';
+  return compact
+    ? date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : date.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function markDirectMessagesRead(friendUsername = '') {
+  const account = getCurrentAccountRecord();
+  if (!account) return false;
+
+  let changed = false;
+  getDirectMessageThread(friendUsername, account.username).forEach((message) => {
+    if (message.direction === 'incoming' && !message.read) {
+      message.read = true;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function openDirectMessagesWith(friendUsername = '') {
+  const cleanFriend = String(friendUsername || '').trim().toLowerCase();
+  selectedDirectMessageFriend = cleanFriend;
+  const changed = cleanFriend ? markDirectMessagesRead(cleanFriend) : false;
+  renderMessagesModule();
+  if (changed) scheduleHubStatePersist();
+}
+
+function renderMessagesModule() {
+  if (!messagesTableBody || !directMessagesHeader || !directMessagesList || !messagesFriendSelect) return;
+
+  const account = getCurrentAccountRecord();
+  if (!account) {
+    messagesFriendSelect.innerHTML = '<option value="">Select a friend</option>';
+    messagesTableBody.innerHTML = '<tr><td colspan="4" class="empty-state-cell">Sign in to message your friends.</td></tr>';
+    directMessagesHeader.innerHTML = '<span class="chat-placeholder-text">Sign in to open a friend conversation.</span>';
+    directMessagesList.innerHTML = '<div class="chat-no-messages">Messages are available after sign-in.</div>';
+    if (directMessageInputBar) directMessageInputBar.hidden = true;
+    return;
+  }
+
+  const friendEntries = getAccountFriendEntries(account)
+    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  if (!friendEntries.length) {
+    selectedDirectMessageFriend = '';
+    messagesFriendSelect.innerHTML = '<option value="">Select a friend</option>';
+    messagesTableBody.innerHTML = '<tr><td colspan="4" class="empty-state-cell">Add at least one friend to start messaging.</td></tr>';
+    directMessagesHeader.innerHTML = '<span class="chat-placeholder-text">Select a friend to open a conversation.</span>';
+    directMessagesList.innerHTML = '<div class="chat-no-messages">Messages are reserved for your account friends.</div>';
+    if (directMessageInputBar) directMessageInputBar.hidden = true;
+    return;
+  }
+
+  const summaries = friendEntries.map((entry) => {
+    const thread = getDirectMessageThread(entry.username, account.username);
+    const lastMessage = thread.length ? thread[thread.length - 1] : null;
+    const unreadCount = thread.filter((message) => message.direction === 'incoming' && !message.read).length;
+    return {
+      ...entry,
+      thread,
+      lastMessage,
+      unreadCount
+    };
+  }).sort((a, b) => (Number(b.lastMessage?.ts || 0) - Number(a.lastMessage?.ts || 0)) || String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  if (!summaries.some((entry) => entry.username === selectedDirectMessageFriend)) {
+    selectedDirectMessageFriend = summaries[0]?.username || '';
+  }
+
+  messagesFriendSelect.innerHTML = summaries.map((entry) => `
+    <option value="${escapeHtml(entry.username)}"${selectedDirectMessageFriend === entry.username ? ' selected' : ''}>${escapeHtml(entry.name)} (@${escapeHtml(entry.username)})</option>
+  `).join('');
+
+  messagesTableBody.innerHTML = summaries.map((entry) => {
+    const previewRaw = entry.lastMessage ? String(entry.lastMessage.text || 'No message') : 'No messages yet.';
+    const preview = truncatePreview(previewRaw, 56);
+    const statusMarkup = entry.unreadCount
+      ? `<span class="badge green">${entry.unreadCount} unread</span>`
+      : '<span class="badge">Ready</span>';
+    return `
+      <tr data-message-friend="${escapeHtml(entry.username)}" class="${selectedDirectMessageFriend === entry.username ? 'selected' : ''}">
+        <td>${escapeHtml(entry.name)}</td>
+        <td>${escapeHtml(preview)}</td>
+        <td>${escapeHtml(entry.lastMessage ? formatDirectMessageTime(entry.lastMessage.ts, true) : '—')}</td>
+        <td>${statusMarkup}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const activeFriend = summaries.find((entry) => entry.username === selectedDirectMessageFriend) || summaries[0];
+  if (!activeFriend) {
+    directMessagesHeader.innerHTML = '<span class="chat-placeholder-text">Select a friend to open a conversation.</span>';
+    directMessagesList.innerHTML = '<div class="chat-no-messages">No friend messages yet.</div>';
+    if (directMessageInputBar) directMessageInputBar.hidden = true;
+    return;
+  }
+
+  selectedDirectMessageFriend = activeFriend.username;
+  directMessagesHeader.innerHTML = `
+    ${renderAvatarMarkup(activeFriend.profilePhoto || activeFriend.name[0]?.toUpperCase() || '?', activeFriend.name[0]?.toUpperCase() || '?', activeFriend.color || '#6c63ff')}
+    <div class="chat-convo-header-info">
+      <strong>${escapeHtml(activeFriend.name)}</strong>
+      <span>@${escapeHtml(activeFriend.username)} • ${escapeHtml(activeFriend.trustLevel || 'friends')} friend</span>
+    </div>
+  `;
+
+  if (!activeFriend.thread.length) {
+    directMessagesList.innerHTML = `<div class="chat-no-messages">No messages with @${escapeHtml(activeFriend.username)} yet. Send the first one below.</div>`;
+  } else {
+    const accountName = account.name || account.username || 'You';
+    const accountPhoto = account.profilePhoto || accountName[0]?.toUpperCase() || 'U';
+    const accountColor = account.color || '#6c63ff';
+    directMessagesList.innerHTML = activeFriend.thread.map((message) => {
+      const isSelf = message.direction !== 'incoming';
+      const authorName = isSelf ? accountName : activeFriend.name;
+      const avatarMarkup = renderAvatarMarkup(
+        isSelf ? accountPhoto : (activeFriend.profilePhoto || activeFriend.name[0]?.toUpperCase() || '?'),
+        authorName[0]?.toUpperCase() || '?',
+        isSelf ? accountColor : (activeFriend.color || '#6c63ff'),
+        'sm'
+      );
+      return `
+        <div class="msg ${isSelf ? 'sent' : 'received'}" data-direct-message-id="${escapeHtml(message.id || '')}">
+          ${avatarMarkup}
+          <div class="msg-body">
+            <div class="msg-author-row"><strong>${escapeHtml(authorName)}</strong><span class="msg-time-inline">${escapeHtml(formatDirectMessageTime(message.ts))}</span></div>
+            <div class="bubble">${renderMarkdown(message.text || '')}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (directMessageInputBar) directMessageInputBar.hidden = false;
+  if (directMessageInput) directMessageInput.placeholder = `Send a message to @${activeFriend.username}...`;
+  directMessagesList.scrollTop = directMessagesList.scrollHeight;
+}
+
+function sendDirectMessage() {
+  const account = getCurrentAccountRecord();
+  if (!account || !directMessageInput) return;
+
+  const friendUsername = String(selectedDirectMessageFriend || messagesFriendSelect?.value || '').trim().toLowerCase();
+  const text = directMessageInput.value.trim();
+  if (!friendUsername) {
+    safeAlert('Select one of your friends first.');
+    return;
+  }
+  if (!text) return;
+
+  const friendEntry = getAccountFriendEntries(account).find((entry) => entry.username === friendUsername);
+  if (!friendEntry) {
+    safeAlert('Messages can only be sent to people in your friends list.');
+    return;
+  }
+
+  const timestamp = Date.now();
+  const thread = getDirectMessageThread(friendUsername, account.username);
+  thread.push({
+    id: `dm-${timestamp}-${Math.floor(Math.random() * 10000)}`,
+    direction: 'outgoing',
+    from: account.username,
+    to: friendUsername,
+    text,
+    read: true,
+    ts: timestamp
+  });
+
+  if (!USE_BACKEND_AUTH && accounts[friendUsername]) {
+    const friendThread = getDirectMessageThread(account.username, friendUsername);
+    friendThread.push({
+      id: `dm-${timestamp}-${Math.floor(Math.random() * 10000)}`,
+      direction: 'incoming',
+      from: account.username,
+      to: friendUsername,
+      text,
+      read: false,
+      ts: timestamp
+    });
+  }
+
+  directMessageInput.value = '';
+  renderMessagesModule();
+  scheduleHubStatePersist();
+}
+
+if (messagesTableBody) {
+  messagesTableBody.addEventListener('click', (event) => {
+    const row = event.target.closest('[data-message-friend]');
+    if (!row) return;
+    openDirectMessagesWith(row.dataset.messageFriend || '');
+  });
+}
+
+if (messagesFriendSelect) {
+  messagesFriendSelect.addEventListener('change', () => {
+    openDirectMessagesWith(messagesFriendSelect.value || '');
+  });
+}
+
+if (sendDirectMessageBtn) sendDirectMessageBtn.addEventListener('click', sendDirectMessage);
+if (directMessageInput) {
+  directMessageInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    sendDirectMessage();
+  });
+}
+
+if (openFriendsTabFromMessagesBtn) {
+  openFriendsTabFromMessagesBtn.addEventListener('click', () => {
+    navigateTo('accountFriends');
+  });
+}
+
+// =====================
 // Partners: Global Profile Manager
 // =====================
 const partnersTableBody = document.getElementById('partnersTableBody');
@@ -6631,40 +6881,7 @@ function renderAccountFriendSection(account = getCurrentAccountRecord()) {
   }
 
   if (!accountDirectoryList) return;
-
-  const knownAccounts = (USE_BACKEND_AUTH && remoteAccountDirectory.length ? remoteAccountDirectory : Object.values(accounts))
-    .filter((entry) => entry && typeof entry === 'object')
-    .filter((entry) => normalizeLookupName(entry.username) && normalizeLookupName(entry.username) !== normalizeLookupName(account.username))
-    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
-
-  if (!knownAccounts.length) {
-    accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">No other saved accounts found yet. Create or sign into another account to see it here.</p>';
-    return;
-  }
-
-  accountDirectoryList.innerHTML = knownAccounts.map((entry) => {
-    const username = String(entry.username || '').trim().toLowerCase();
-    const displayName = String(entry.name || entry.username || 'Unknown account').trim();
-    const trustLevel = normalizeAccountTrustLevel(account.friends?.[username] || entry.trustLevel, '');
-    const theirTrustLevel = normalizeAccountTrustLevel(entry.theirTrustLevel || entry.friends?.[account.username], '');
-    return `
-      <article class="account-friend-card account-directory-card">
-        <div class="account-friend-main">
-          ${renderAvatarMarkup(entry.profilePhoto || displayName[0]?.toUpperCase() || '?', displayName[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
-          <div class="account-friend-meta">
-            <strong>${escapeHtml(displayName)}</strong>
-            <span>@${escapeHtml(username)}</span>
-            <span>${escapeHtml(truncatePreview(entry.description || 'No description set.', 92))}</span>
-            ${trustLevel ? `<span>Your trust: ${escapeHtml(trustLevel)}</span>` : '<span>Not in your friends list yet.</span>'}
-            ${theirTrustLevel ? `<span>They set you as: ${escapeHtml(theirTrustLevel)}</span>` : ''}
-          </div>
-        </div>
-        <div class="account-friend-actions">
-          <button class="btn-sm" type="button" data-prefill-account-friend="${escapeHtml(username)}" data-prefill-account-trust="${escapeHtml(trustLevel || 'friends')}">${trustLevel ? 'Edit Friend' : 'Add Friend'}</button>
-        </div>
-      </article>
-    `;
-  }).join('');
+  accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">Friend suggestions are turned off. Add friends by typing their exact username above.</p>';
 }
 
 async function saveAccountFriendLink(targetUsername = '', trustLevel = 'friends', options = {}) {
@@ -6792,6 +7009,7 @@ function renderAccountModule() {
       accountCustomFieldsDisplay.hidden = !customMarkup;
     }
     renderAccountFriendSection(acct);
+    renderMessagesModule();
     if (friendTrustLevelInput && !friendTrustLevelInput.value) friendTrustLevelInput.value = 'friends';
     if (editAccountNameInput) editAccountNameInput.value = name;
     if (editAccountUsernameInput) editAccountUsernameInput.value = acct.username || '';
@@ -6814,6 +7032,7 @@ function renderAccountModule() {
     showAccountError(loginError, '');
   }
 
+  renderMessagesModule();
   setAppLockState();
   renderDashboard();
 }
@@ -7717,6 +7936,7 @@ function buildHubStateSnapshot() {
     headmateProfilesByUser: cloneJsonData(headmateProfilesByUser, {}),
     headmateFoldersByUser: cloneJsonData(headmateFoldersByUser, {}),
     chatMessagesByUser: cloneJsonData(chatMessagesByUser, {}),
+    directMessagesByAccount: cloneJsonData(directMessagesByAccount, {}),
     partnerProfiles: cloneJsonData(partnerProfiles, {}),
     subsystemsByUser: cloneJsonData(subsystemsByUser, {}),
     itemProfiles: cloneJsonData(itemProfiles, {}),
@@ -7760,6 +7980,7 @@ function applyHubStateSnapshot(saved = {}, options = {}) {
   replaceStoredObject(headmateProfilesByUser, saved.headmateProfilesByUser);
   replaceStoredObject(headmateFoldersByUser, saved.headmateFoldersByUser);
   replaceStoredObject(chatMessagesByUser, saved.chatMessagesByUser);
+  replaceStoredObject(directMessagesByAccount, saved.directMessagesByAccount);
   replaceStoredObject(partnerProfiles, saved.partnerProfiles);
   replaceStoredObject(subsystemsByUser, saved.subsystemsByUser);
   replaceStoredObject(itemProfiles, saved.itemProfiles);

@@ -557,14 +557,30 @@
         <div class="page-header"><h1>Messages</h1></div>
         <div class="page-body">
           <div class="toolbar">
-            <button class="btn-primary">+ Compose</button>
+            <select class="setting-input" id="messagesFriendSelect">
+              <option value="">Select a friend</option>
+            </select>
+            <button class="btn-sm" id="openFriendsTabFromMessagesBtn" type="button">Manage Friends</button>
           </div>
+          <p class="headmate-hint">Messages are between account friends. Inner Chat stays between alters in your system.</p>
           <table class="data-table">
-            <thead><tr><th>From</th><th>Subject</th><th>Date</th><th>Status</th></tr></thead>
-            <tbody>
-              <tr><td colspan="4" class="empty-state-cell">No messages yet.</td></tr>
+            <thead><tr><th>Friend</th><th>Last Message</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody id="messagesTableBody">
+              <tr><td colspan="4" class="empty-state-cell">No friend messages yet.</td></tr>
             </tbody>
           </table>
+          <section class="widget" style="padding:0">
+            <div class="chat-main">
+              <div class="chat-convo-header" id="directMessagesHeader">
+                <span class="chat-placeholder-text">Select a friend to open a conversation.</span>
+              </div>
+              <div class="chat-messages" id="directMessagesList"></div>
+              <div class="chat-input-bar" id="directMessageInputBar" hidden>
+                <input type="text" id="directMessageInput" placeholder="Send a message to this friend..." autocomplete="off" />
+                <button class="btn-primary" id="sendDirectMessageBtn" type="button">Send</button>
+              </div>
+            </div>
+          </section>
         </div>
       </section>
 
@@ -972,9 +988,9 @@
               <div class="account-friends-list" id="accountFriendsList"></div>
             </div>
             <div class="settings-group">
-              <h3>Other Accounts</h3>
-              <p class="headmate-hint">View other known accounts here and quickly prefill them for friend requests.</p>
-              <div class="account-friends-list account-directory-grid" id="accountDirectoryList"></div>
+              <h3>Friend Search Only</h3>
+              <p class="headmate-hint">Friend suggestions are off. Add friends by searching their exact username above.</p>
+              <div class="account-friends-list" id="accountDirectoryList"></div>
             </div>
           </div>
         </div>

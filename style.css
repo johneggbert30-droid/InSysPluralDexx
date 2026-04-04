@@ -990,6 +990,19 @@ select {
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
+#page-messages .data-table tbody tr {
+  cursor: pointer;
+  transition: box-shadow var(--transition), transform var(--transition);
+}
+
+#page-messages .data-table tbody tr:hover {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+#page-messages .data-table tbody tr.selected {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
 .partners-diagram {
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
