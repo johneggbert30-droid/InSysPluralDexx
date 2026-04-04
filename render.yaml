@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ispd7-backend
+    runtime: node
+    rootDir: ISPD7/backend
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_ORIGIN
+        sync: false
