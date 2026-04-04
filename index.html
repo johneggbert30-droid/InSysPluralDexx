@@ -981,6 +981,15 @@
             <div class="headmate-profile-grid account-extra-grid" id="accountCustomFieldsDisplay"></div>
             <div class="settings-sections">
               <div class="settings-group">
+                <h3>Account Friends & Trust</h3>
+                <p class="headmate-hint" id="accountFriendsSummary">Use usernames to connect actual accounts and set their trust with the same privacy labels.</p>
+                <div class="setting-row"><label>Friend Username</label><input type="text" class="setting-input" id="friendUsernameInput" placeholder="username" autocomplete="off" /></div>
+                <div class="setting-row"><label>Trust Level</label><select class="setting-input" id="friendTrustLevelInput"><option value="friends">Friends</option><option value="trusted">Trusted</option><option value="partners">Partners</option><option value="private">Private</option></select></div>
+                <p class="account-error" id="friendError" hidden></p>
+                <button class="btn-primary" id="addAccountFriendBtn" type="button" style="margin-top:1rem">Add or Update Friend</button>
+                <div class="account-friends-list" id="accountFriendsList"></div>
+              </div>
+              <div class="settings-group">
                 <h3>Edit Profile</h3>
                 <div class="setting-row"><label>Name</label><input type="text" class="setting-input" id="editAccountNameInput" autocomplete="name" /></div>
                 <div class="setting-row"><label>Username</label><input type="text" class="setting-input" id="editAccountUsernameInput" autocomplete="username" /></div>

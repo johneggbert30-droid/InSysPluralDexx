@@ -2066,6 +2066,52 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 .profile-info h2 { font-size: 22px; margin-bottom: 4px; }
 .profile-info p { font-size: 14px; color: var(--text-muted); }
 
+.account-friends-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.account-friend-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+}
+
+.account-friend-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-friend-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.account-friend-meta span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.account-friend-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.account-friend-actions .setting-input {
+  min-width: 120px;
+}
+
 .headmate-hint {
   margin-top: 12px;
   color: var(--text-muted);

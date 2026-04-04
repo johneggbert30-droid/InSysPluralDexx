@@ -43,9 +43,35 @@ function writeStore(store) {
   fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
 }
 
-function sanitizeUser(user) {
+const TRUST_LEVELS = ['public', 'friends', 'trusted', 'partners', 'private'];
+
+function normalizeTrustLevel(level, fallback = 'friends') {
+  const normalized = String(level || '').trim().toLowerCase();
+  return TRUST_LEVELS.includes(normalized) ? normalized : fallback;
+}
+
+function sanitizeUser(user, store = { users: {} }, viewerUsername = '') {
   if (!user) return null;
   const { passwordHash, ...safeUser } = user;
+  const friends = user.friends && typeof user.friends === 'object' ? { ...user.friends } : {};
+
+  safeUser.friends = friends;
+  safeUser.friendProfiles = Object.entries(friends).map(([username, trustLevel]) => {
+    const friend = store.users?.[username];
+    return {
+      username,
+      name: friend?.name || username,
+      profilePhoto: friend?.profilePhoto || username[0]?.toUpperCase() || 'U',
+      color: friend?.color || '#6c63ff',
+      tags: friend?.tags || 'Not set',
+      trustLevel: normalizeTrustLevel(trustLevel, 'friends'),
+      theirTrustLevel: normalizeTrustLevel(friend?.friends?.[user.username], '')
+    };
+  });
+  safeUser.viewerTrustLevel = viewerUsername && viewerUsername !== user.username
+    ? normalizeTrustLevel(friends[viewerUsername], 'public')
+    : 'private';
+
   return safeUser;
 }
 
@@ -65,6 +91,7 @@ function createDefaultUser(username) {
     profilePhoto: initial,
     banner: `${displayName} Banner`,
     color: '#6c63ff',
+    friends: {},
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -118,7 +145,7 @@ app.post('/api/auth/signup', async (req, res) => {
 
   return res.status(201).json({
     token: createToken(username),
-    account: sanitizeUser(user)
+    account: sanitizeUser(user, store, username)
   });
 });
 
@@ -139,7 +166,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   return res.json({
     token: createToken(username),
-    account: sanitizeUser(user)
+    account: sanitizeUser(user, store, username)
   });
 });
 
@@ -151,7 +178,7 @@ app.get('/api/me', authRequired, (req, res) => {
     return res.status(404).json({ error: 'Account not found.' });
   }
 
-  return res.json({ account: sanitizeUser(user) });
+  return res.json({ account: sanitizeUser(user, store, req.auth.username) });
 });
 
 app.put('/api/me', authRequired, async (req, res) => {
@@ -193,6 +220,11 @@ app.put('/api/me', authRequired, async (req, res) => {
   }
 
   if (requestedUsername !== currentUsername) {
+    Object.values(store.users).forEach((userEntry) => {
+      if (!userEntry?.friends || !userEntry.friends[currentUsername]) return;
+      userEntry.friends[requestedUsername] = userEntry.friends[currentUsername];
+      delete userEntry.friends[currentUsername];
+    });
     delete store.users[currentUsername];
   }
   store.users[requestedUsername] = updatedUser;
@@ -200,7 +232,69 @@ app.put('/api/me', authRequired, async (req, res) => {
 
   return res.json({
     token: createToken(requestedUsername),
-    account: sanitizeUser(updatedUser)
+    account: sanitizeUser(updatedUser, store, requestedUsername)
+  });
+});
+
+app.post('/api/friends', authRequired, (req, res) => {
+  const store = readStore();
+  const currentUsername = req.auth.username;
+  const friendUsername = String(req.body?.username || '').trim().toLowerCase();
+  const trustLevel = normalizeTrustLevel(req.body?.trustLevel, 'friends');
+  const currentUser = store.users[currentUsername];
+  const friendUser = store.users[friendUsername];
+
+  if (!currentUser) {
+    return res.status(404).json({ error: 'Account not found.' });
+  }
+  if (!friendUsername) {
+    return res.status(400).json({ error: 'Friend username is required.' });
+  }
+  if (friendUsername === currentUsername) {
+    return res.status(400).json({ error: 'You cannot add your own account as a friend.' });
+  }
+  if (!friendUser) {
+    return res.status(404).json({ error: 'No account exists with that username yet.' });
+  }
+
+  currentUser.friends = { ...(currentUser.friends || {}), [friendUsername]: trustLevel };
+  friendUser.friends = {
+    ...(friendUser.friends || {}),
+    [currentUsername]: normalizeTrustLevel(friendUser.friends?.[currentUsername], 'friends')
+  };
+  currentUser.updatedAt = new Date().toISOString();
+  friendUser.updatedAt = new Date().toISOString();
+  store.users[currentUsername] = currentUser;
+  store.users[friendUsername] = friendUser;
+  writeStore(store);
+
+  return res.json({
+    account: sanitizeUser(currentUser, store, currentUsername),
+    friend: sanitizeUser(friendUser, store, currentUsername)
+  });
+});
+
+app.delete('/api/friends/:username', authRequired, (req, res) => {
+  const store = readStore();
+  const currentUsername = req.auth.username;
+  const friendUsername = String(req.params?.username || '').trim().toLowerCase();
+  const currentUser = store.users[currentUsername];
+  const friendUser = store.users[friendUsername];
+
+  if (!currentUser) {
+    return res.status(404).json({ error: 'Account not found.' });
+  }
+
+  if (currentUser.friends) delete currentUser.friends[friendUsername];
+  if (friendUser?.friends) delete friendUser.friends[currentUsername];
+  currentUser.updatedAt = new Date().toISOString();
+  if (friendUser) friendUser.updatedAt = new Date().toISOString();
+  store.users[currentUsername] = currentUser;
+  if (friendUser) store.users[friendUsername] = friendUser;
+  writeStore(store);
+
+  return res.json({
+    account: sanitizeUser(currentUser, store, currentUsername)
   });
 });
 
@@ -212,6 +306,11 @@ app.delete('/api/me', authRequired, (req, res) => {
     return res.status(404).json({ error: 'Account not found.' });
   }
 
+  Object.values(store.users).forEach((userEntry) => {
+    if (userEntry?.friends && userEntry.friends[currentUsername]) {
+      delete userEntry.friends[currentUsername];
+    }
+  });
   delete store.users[currentUsername];
   writeStore(store);
   return res.json({ ok: true });

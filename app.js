@@ -2612,8 +2612,17 @@ function canViewField(fieldLevel, viewerLevel) {
 }
 
 function getViewerTrustLevel() {
+  if (loggedInAccountKey && accounts[loggedInAccountKey]) {
+    const activeUser = normalizeLookupName(getActiveUserName());
+    const matchingAccountKey = Object.keys(accounts).find((key) => normalizeLookupName(key) === activeUser);
+    if (matchingAccountKey && matchingAccountKey !== loggedInAccountKey) {
+      return normalizeAccountTrustLevel(accounts[matchingAccountKey]?.friends?.[loggedInAccountKey], 'public');
+    }
+    return 'private';
+  }
+
   const user = getActiveUserName();
-  return systemProfiles[user]?.trustLevel || 'private';
+  return systemProfiles[user]?.trustLevel || 'public';
 }
 
 function renderPrivacySelect(id, current) {
@@ -5912,6 +5921,8 @@ function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
     profilePhoto: account.profilePhoto || displayName[0]?.toUpperCase() || 'U',
     banner: account.banner || `${displayName} Banner`,
     color: account.color || '#6c63ff',
+    friends: account.friends && typeof account.friends === 'object' ? { ...account.friends } : {},
+    friendProfiles: Array.isArray(account.friendProfiles) ? account.friendProfiles.map((entry) => ({ ...entry })) : [],
     createdAt: account.createdAt || new Date().toISOString()
   };
 }
@@ -6038,6 +6049,12 @@ const accountUsernameDisplay = document.getElementById('accountUsernameDisplay')
 const accountDescriptionDisplay = document.getElementById('accountDescriptionDisplay');
 const accountTagsDisplay = document.getElementById('accountTagsDisplay');
 const accountCustomFieldsDisplay = document.getElementById('accountCustomFieldsDisplay');
+const accountFriendsSummary = document.getElementById('accountFriendsSummary');
+const accountFriendsList = document.getElementById('accountFriendsList');
+const friendUsernameInput = document.getElementById('friendUsernameInput');
+const friendTrustLevelInput = document.getElementById('friendTrustLevelInput');
+const friendError = document.getElementById('friendError');
+const addAccountFriendBtn = document.getElementById('addAccountFriendBtn');
 const editAccountNameInput = document.getElementById('editAccountNameInput');
 const editAccountUsernameInput = document.getElementById('editAccountUsernameInput');
 const editAccountDescriptionInput = document.getElementById('editAccountDescriptionInput');
@@ -6056,6 +6073,171 @@ function showAccountError(el, msg) {
   if (!el) return;
   el.textContent = msg;
   el.hidden = !msg;
+}
+
+function normalizeAccountTrustLevel(level, fallback = 'friends') {
+  const normalized = String(level || '').trim().toLowerCase();
+  return PRIVACY_LEVELS.includes(normalized) ? normalized : fallback;
+}
+
+function getCurrentAccountRecord() {
+  return loggedInAccountKey && accounts[loggedInAccountKey] ? accounts[loggedInAccountKey] : null;
+}
+
+function getAccountFriendEntries(account = getCurrentAccountRecord()) {
+  if (!account) return [];
+
+  if (Array.isArray(account.friendProfiles) && account.friendProfiles.length) {
+    return account.friendProfiles
+      .map((entry) => ({
+        username: String(entry.username || '').trim().toLowerCase(),
+        name: String(entry.name || entry.username || 'Unknown account').trim(),
+        trustLevel: normalizeAccountTrustLevel(entry.trustLevel, 'friends'),
+        theirTrustLevel: normalizeAccountTrustLevel(entry.theirTrustLevel, ''),
+        profilePhoto: entry.profilePhoto || String(entry.name || entry.username || '?').trim()[0]?.toUpperCase() || '?',
+        color: entry.color || '#6c63ff'
+      }))
+      .filter((entry) => entry.username);
+  }
+
+  return Object.entries(account.friends || {}).map(([username, trustLevel]) => ({
+    username,
+    name: username,
+    trustLevel: normalizeAccountTrustLevel(trustLevel, 'friends'),
+    theirTrustLevel: '',
+    profilePhoto: username[0]?.toUpperCase() || '?',
+    color: '#6c63ff'
+  }));
+}
+
+function renderAccountFriendSection(account = getCurrentAccountRecord()) {
+  if (!accountFriendsList || !accountFriendsSummary) return;
+
+  const entries = getAccountFriendEntries(account);
+  if (!entries.length) {
+    accountFriendsSummary.textContent = 'No account friends linked yet. Add a username and choose the trust label you want them to have.';
+    accountFriendsList.innerHTML = '<p class="headmate-hint" style="margin:0">No friend connections saved yet.</p>';
+    return;
+  }
+
+  accountFriendsSummary.textContent = `${entries.length} account friend${entries.length === 1 ? '' : 's'} linked. Trust labels use the same privacy scale as the rest of the app.`;
+
+  accountFriendsList.innerHTML = entries.map((entry) => {
+    const selectedOptions = PRIVACY_LEVELS.filter((level) => level !== 'public')
+      .map((level) => `<option value="${level}"${entry.trustLevel === level ? ' selected' : ''}>${level.charAt(0).toUpperCase() + level.slice(1)}</option>`)
+      .join('');
+    return `
+      <article class="account-friend-card">
+        <div class="account-friend-main">
+          ${renderAvatarMarkup(entry.profilePhoto, entry.name[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
+          <div class="account-friend-meta">
+            <strong>${escapeHtml(entry.name)}</strong>
+            <span>@${escapeHtml(entry.username)}</span>
+            <span>Your trust: ${escapeHtml(entry.trustLevel)}</span>
+            ${entry.theirTrustLevel ? `<span>They set you as: ${escapeHtml(entry.theirTrustLevel)}</span>` : ''}
+          </div>
+        </div>
+        <div class="account-friend-actions">
+          <select class="setting-input" data-account-friend-trust="${escapeHtml(entry.username)}">${selectedOptions}</select>
+          <button class="btn-sm" type="button" data-remove-account-friend="${escapeHtml(entry.username)}">Remove</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+async function saveAccountFriendLink(targetUsername = '', trustLevel = 'friends', options = {}) {
+  const account = getCurrentAccountRecord();
+  if (!account) return;
+
+  const cleanUsername = String(targetUsername || '').trim().replace(/^@+/, '').toLowerCase();
+  const normalizedTrust = normalizeAccountTrustLevel(trustLevel, 'friends');
+  const clearForm = Boolean(options.clearForm);
+  const silent = Boolean(options.silent);
+
+  if (!cleanUsername) {
+    showAccountError(friendError, 'Enter a username to add as a friend.');
+    return;
+  }
+  if (cleanUsername === account.username) {
+    showAccountError(friendError, 'You cannot friend your own account.');
+    return;
+  }
+
+  if (USE_BACKEND_AUTH) {
+    try {
+      const result = await apiRequest('/api/friends', {
+        method: 'POST',
+        body: JSON.stringify({ username: cleanUsername, trustLevel: normalizedTrust })
+      });
+      const savedAccount = normalizeRemoteAccount(result.account, account.username);
+      accounts[savedAccount.username] = savedAccount;
+      loggedInAccountKey = savedAccount.username;
+      persistAccountState();
+      showAccountError(friendError, '');
+      if (clearForm && friendUsernameInput) friendUsernameInput.value = '';
+      if (clearForm && friendTrustLevelInput) friendTrustLevelInput.value = 'friends';
+      renderAccountModule();
+      if (!silent) safeAlert(`Friend settings saved for @${cleanUsername}.`);
+    } catch (err) {
+      showAccountError(friendError, err.message || 'Could not update friend settings.');
+    }
+    return;
+  }
+
+  if (!accounts[cleanUsername]) {
+    showAccountError(friendError, 'That username does not exist yet.');
+    return;
+  }
+
+  account.friends = { ...(account.friends || {}), [cleanUsername]: normalizedTrust };
+  account.friendProfiles = [];
+  accounts[cleanUsername].friends = {
+    ...(accounts[cleanUsername].friends || {}),
+    [account.username]: normalizeAccountTrustLevel(accounts[cleanUsername].friends?.[account.username], 'friends')
+  };
+  accounts[cleanUsername].friendProfiles = [];
+  persistAccountState();
+  showAccountError(friendError, '');
+  if (clearForm && friendUsernameInput) friendUsernameInput.value = '';
+  if (clearForm && friendTrustLevelInput) friendTrustLevelInput.value = 'friends';
+  renderAccountModule();
+  if (!silent) safeAlert(`Friend settings saved for @${cleanUsername}.`);
+}
+
+async function removeAccountFriendLink(targetUsername = '') {
+  const account = getCurrentAccountRecord();
+  if (!account) return;
+
+  const cleanUsername = String(targetUsername || '').trim().replace(/^@+/, '').toLowerCase();
+  if (!cleanUsername) return;
+
+  if (USE_BACKEND_AUTH) {
+    try {
+      const result = await apiRequest(`/api/friends/${encodeURIComponent(cleanUsername)}`, {
+        method: 'DELETE'
+      });
+      const savedAccount = normalizeRemoteAccount(result.account, account.username);
+      accounts[savedAccount.username] = savedAccount;
+      loggedInAccountKey = savedAccount.username;
+      persistAccountState();
+      showAccountError(friendError, '');
+      renderAccountModule();
+      safeAlert(`Removed @${cleanUsername} from your friends.`);
+    } catch (err) {
+      showAccountError(friendError, err.message || 'Could not remove that friend.');
+    }
+    return;
+  }
+
+  if (account.friends) delete account.friends[cleanUsername];
+  account.friendProfiles = [];
+  if (accounts[cleanUsername]?.friends) delete accounts[cleanUsername].friends[account.username];
+  if (accounts[cleanUsername]) accounts[cleanUsername].friendProfiles = [];
+  persistAccountState();
+  showAccountError(friendError, '');
+  renderAccountModule();
+  safeAlert(`Removed @${cleanUsername} from your friends.`);
 }
 
 function renderAccountModule() {
@@ -6084,6 +6266,8 @@ function renderAccountModule() {
       accountCustomFieldsDisplay.innerHTML = customMarkup || '';
       accountCustomFieldsDisplay.hidden = !customMarkup;
     }
+    renderAccountFriendSection(acct);
+    if (friendTrustLevelInput && !friendTrustLevelInput.value) friendTrustLevelInput.value = 'friends';
     if (editAccountNameInput) editAccountNameInput.value = name;
     if (editAccountUsernameInput) editAccountUsernameInput.value = acct.username || '';
     if (editAccountDescriptionInput) editAccountDescriptionInput.value = acct.description || '';
@@ -6209,12 +6393,42 @@ if (signupSubmitBtn) {
       banner: `${username} Banner`,
       password,
       color: palette[Object.keys(accounts).length % palette.length],
+      friends: {},
+      friendProfiles: [],
       createdAt: new Date().toISOString()
     };
     loggedInAccountKey = username;
     persistAccountState();
     renderAccountModule();
     navigateTo('dashboard');
+  });
+}
+
+if (addAccountFriendBtn) {
+  addAccountFriendBtn.addEventListener('click', () => {
+    saveAccountFriendLink(friendUsernameInput?.value || '', friendTrustLevelInput?.value || 'friends', { clearForm: true });
+  });
+}
+
+if (friendUsernameInput) {
+  friendUsernameInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    addAccountFriendBtn?.click();
+  });
+}
+
+if (accountFriendsList) {
+  accountFriendsList.addEventListener('click', (event) => {
+    const removeBtn = event.target.closest('[data-remove-account-friend]');
+    if (!removeBtn) return;
+    removeAccountFriendLink(removeBtn.dataset.removeAccountFriend || '');
+  });
+
+  accountFriendsList.addEventListener('change', (event) => {
+    const trustSelect = event.target.closest('[data-account-friend-trust]');
+    if (!trustSelect) return;
+    saveAccountFriendLink(trustSelect.dataset.accountFriendTrust || '', trustSelect.value, { silent: true });
   });
 }
 
