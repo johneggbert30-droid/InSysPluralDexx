@@ -1162,7 +1162,9 @@ if (addSystemFromTemplateBtn) {
     systemEditColor.value = normalizeHexColor(template.color || '#6c63ff', '#6c63ff');
     syncColorValuePill(systemEditColor);
     systemEditBanner.value = template.banner || `${templatedName} Banner`;
-    systemEditPhoto.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
+    systemEditPhoto.value = template.profilePhoto || template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
+    primeStoredMediaInput(systemEditBanner);
+    primeStoredMediaInput(systemEditPhoto);
     systemProfileEditor.hidden = false;
     systemProfileEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
@@ -1183,8 +1185,8 @@ if (saveSystemEditorBtn) {
       tags: (systemEditTags?.value || '').trim() || 'Not set',
       customFields: (systemEditCustomFields?.value || '').trim() || 'Not set',
       color: (systemEditColor.value || '').trim() || '#6c63ff',
-      banner: (systemEditBanner.value || '').trim() || `${newName} Banner`,
-      profilePhoto: (systemEditPhoto.value || '').trim() || newName[0].toUpperCase(),
+      banner: getEditorInputValue(systemEditBanner) || `${newName} Banner`,
+      profilePhoto: getEditorInputValue(systemEditPhoto) || newName[0].toUpperCase(),
       trustLevel: (systemEditTrustLevel?.value) || 'private'
     };
 
@@ -1908,7 +1910,7 @@ function readPartnerEditorValues(baseProfile) {
   partnerFieldSchema.forEach((field) => {
     const input = document.getElementById(`partnerEdit_${field.key}`);
     if (!input) return;
-    const value = (input.value || '').trim();
+    const value = getEditorInputValue(input);
     updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
   });
   updated.fieldPrivacy = readFieldPrivacy(partnerFieldSchema, 'partnerEdit', baseProfile);
@@ -2885,8 +2887,8 @@ function readHeadmateEditorValues(baseProfile) {
       return;
     }
 
-    const rawValue = element.value ?? '';
-    updated[field.key] = rawValue.trim() ? rawValue.trim() : (baseProfile[field.key] ?? 'Not set');
+    const rawValue = getEditorInputValue(element);
+    updated[field.key] = rawValue ? rawValue : (baseProfile[field.key] ?? 'Not set');
   });
 
   updated.fieldPrivacy = readFieldPrivacy(headmateFieldSchema, 'headmateEdit', baseProfile);
@@ -3878,11 +3880,38 @@ function renderCustomFieldArticles(profile, privacyValue = 'public') {
   });
 }
 
+const MEDIA_FILE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
+const MAX_MEDIA_UPLOAD_BYTES = 4 * 1024 * 1024;
+
+function renderMediaInputControl({ label, id, value, placeholder = '', helperText = '' }) {
+  const rawValue = String(value || '').trim();
+  const hasEmbeddedImage = /^data:image\//i.test(rawValue);
+  const displayValue = hasEmbeddedImage ? '[Uploaded image/GIF saved]' : rawValue;
+  const mediaAttrs = hasEmbeddedImage
+    ? ` data-media-value="${escapeHtml(rawValue)}" data-media-label="${escapeHtml(displayValue)}"`
+    : '';
+
+  return `
+    <div class="media-input-field">
+      <span class="media-input-label">${label}</span>
+      <div class="media-input-row">
+        <input class="setting-input" id="${id}" type="text" value="${escapeHtml(displayValue)}"${mediaAttrs}${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''} />
+        <label class="btn-sm media-upload-btn" title="Choose an image or GIF file">
+          Upload File/GIF
+          <input type="file" accept="${MEDIA_FILE_ACCEPT}" data-media-target="${id}" hidden />
+        </label>
+        <button class="btn-sm" type="button" data-clear-media-target="${id}">Clear</button>
+      </div>
+      ${helperText ? `<p class="field-helper">${helperText}</p>` : ''}
+    </div>
+  `;
+}
+
 function renderFieldInput(field, id, safeValue) {
   const placeholder = field.key === 'profilePhoto'
-    ? 'Letter, GIF URL, or image URL'
+    ? 'Letter, uploaded file/GIF, or image URL'
     : field.key === 'banner'
-      ? 'Banner text or image/GIF URL'
+      ? 'Banner text, uploaded file/GIF, or image URL'
       : field.key === 'linkedProfiles'
         ? 'Example: Headmate: Alex, Account: @friend, Account Alter: @friend / Nova'
         : field.key === 'linkedAlters'
@@ -3898,6 +3927,18 @@ function renderFieldInput(field, id, safeValue) {
   if (field.key === 'color') {
     const color = normalizeHexColor(safeValue, '#6c63ff');
     return `<label>${field.label}<div class="color-input-row"><input class="setting-input setting-input-color" id="${id}" type="color" value="${color}" /><span class="color-value-pill" data-color-value-for="${id}">${escapeHtml(color.toUpperCase())}</span></div></label>`;
+  }
+  if (field.key === 'profilePhoto' || field.key === 'banner') {
+    const helperText = field.key === 'profilePhoto'
+      ? 'Choose a local photo or GIF from your device, or paste an image URL. You can still type a letter if you prefer.'
+      : 'Choose a local image or GIF from your device, or paste an image URL. You can also keep using banner text.';
+    return renderMediaInputControl({
+      label: field.label,
+      id,
+      value: safeValue,
+      placeholder,
+      helperText
+    });
   }
   if (field.type === 'textarea') {
     const helper = field.key === 'customFields'
@@ -3926,6 +3967,84 @@ function syncColorValuePill(input, fallback = '#6c63ff') {
   if (pill) pill.textContent = color.toUpperCase();
 }
 
+function getEditorInputValue(input) {
+  return String(input?.dataset?.mediaValue ?? input?.value ?? '').trim();
+}
+
+function storeMediaInputValue(input, rawValue, labelText = '[Uploaded image/GIF saved]') {
+  if (!input) return;
+  const cleanValue = String(rawValue || '').trim();
+  if (!cleanValue) {
+    delete input.dataset.mediaValue;
+    delete input.dataset.mediaLabel;
+    input.value = '';
+    return;
+  }
+
+  input.dataset.mediaValue = cleanValue;
+  input.dataset.mediaLabel = labelText;
+  input.dataset.settingMediaSyncing = 'true';
+  input.value = labelText;
+  delete input.dataset.settingMediaSyncing;
+}
+
+function primeStoredMediaInput(input, labelText = '[Uploaded image/GIF saved]') {
+  if (!input) return;
+  const raw = String(input.dataset.mediaValue || input.value || '').trim();
+  delete input.dataset.mediaValue;
+  delete input.dataset.mediaLabel;
+
+  if (/^data:image\//i.test(raw)) {
+    storeMediaInputValue(input, raw, labelText);
+  }
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function enhanceMediaPickerInput(input, options = {}) {
+  if (!input || input.dataset.mediaEnhanced === 'true' || !input.id || !input.parentNode) return;
+
+  const kind = options.kind || 'photo';
+  const helperText = options.helperText
+    || (kind === 'banner'
+      ? 'Choose a local image or GIF file or paste an image URL. You can also keep using banner text.'
+      : 'Choose a local photo or GIF file or paste an image URL. You can still type a letter if you prefer.');
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'media-input-row';
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  const uploadLabel = document.createElement('label');
+  uploadLabel.className = 'btn-sm media-upload-btn';
+  uploadLabel.title = 'Choose an image or GIF file';
+  uploadLabel.innerHTML = `Upload File/GIF<input type="file" accept="${MEDIA_FILE_ACCEPT}" data-media-target="${input.id}" hidden />`;
+
+  const clearButton = document.createElement('button');
+  clearButton.type = 'button';
+  clearButton.className = 'btn-sm';
+  clearButton.dataset.clearMediaTarget = input.id;
+  clearButton.textContent = 'Clear';
+
+  wrapper.appendChild(uploadLabel);
+  wrapper.appendChild(clearButton);
+
+  const helper = document.createElement('p');
+  helper.className = 'field-helper';
+  helper.textContent = helperText;
+  wrapper.insertAdjacentElement('afterend', helper);
+
+  input.dataset.mediaEnhanced = 'true';
+  primeStoredMediaInput(input);
+}
+
 function bindColorPickers(container) {
   if (!container) return;
   container.querySelectorAll('input[type="color"]').forEach((picker) => {
@@ -3943,6 +4062,20 @@ function bindColorPickers(container) {
 }
 
 document.addEventListener('click', (event) => {
+  const clearMediaBtn = event.target.closest('[data-clear-media-target]');
+  if (clearMediaBtn) {
+    event.preventDefault();
+    const target = document.getElementById(clearMediaBtn.dataset.clearMediaTarget || '');
+    if (!target) return;
+    delete target.dataset.mediaValue;
+    delete target.dataset.mediaLabel;
+    target.value = '';
+    target.focus();
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+
   const addFieldBtn = event.target.closest('[data-add-custom-field]');
   if (!addFieldBtn) return;
   event.preventDefault();
@@ -3954,6 +4087,49 @@ document.addEventListener('click', (event) => {
   target.value = `${prefix}New Field: `;
   target.focus();
   target.setSelectionRange(target.value.length, target.value.length);
+});
+
+document.addEventListener('change', async (event) => {
+  const picker = event.target.closest('input[type="file"][data-media-target]');
+  if (!picker) return;
+
+  const [file] = Array.from(picker.files || []);
+  if (!file) return;
+
+  const target = document.getElementById(picker.dataset.mediaTarget || '');
+  if (!target) return;
+
+  if (!String(file.type || '').startsWith('image/')) {
+    safeAlert('Please choose an image or GIF file.');
+    picker.value = '';
+    return;
+  }
+
+  if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+    safeAlert('Please choose an image or GIF under 4 MB.');
+    picker.value = '';
+    return;
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    storeMediaInputValue(target, dataUrl, `[Uploaded] ${file.name}`);
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.dispatchEvent(new Event('change', { bubbles: true }));
+  } catch (error) {
+    safeAlert(error?.message || 'Could not read that file.');
+  } finally {
+    picker.value = '';
+  }
+});
+
+document.addEventListener('input', (event) => {
+  const input = event.target.closest('.setting-input[id]');
+  if (!input || input.dataset.settingMediaSyncing === 'true') return;
+  if (input.dataset.mediaValue && input.value !== input.dataset.mediaLabel) {
+    delete input.dataset.mediaValue;
+    delete input.dataset.mediaLabel;
+  }
 });
 
 function applyBannerStyle(el, bannerValue, colorValue, colorVarName = '--headmate-color') {
@@ -4607,7 +4783,7 @@ function readLocationEditorValues(base) {
   locationFieldSchema.forEach((field) => {
     const el = document.getElementById(`locationEdit_${field.key}`);
     if (!el) return;
-    const value = (el.value || '').trim();
+    const value = getEditorInputValue(el);
     updated[field.key] = value || (base[field.key] ?? 'Not set');
   });
   updated.fieldPrivacy = readFieldPrivacy(locationFieldSchema, 'locationEdit', base);
@@ -5084,7 +5260,7 @@ function readSubsystemEditorValues(base) {
   subsystemFieldSchema.forEach((field) => {
     const el = document.getElementById(`subsystemEdit_${field.key}`);
     if (!el) return;
-    updated[field.key] = el.value.trim() || (base[field.key] ?? '');
+    updated[field.key] = getEditorInputValue(el) || (base[field.key] ?? '');
   });
   updated.fieldPrivacy = readFieldPrivacy(subsystemFieldSchema, 'subsystemEdit', base);
   return updated;
@@ -5475,7 +5651,7 @@ function readItemEditorValues(base) {
   itemFieldSchema.forEach((field) => {
     const el = document.getElementById(`itemEdit_${field.key}`);
     if (!el) return;
-    updated[field.key] = el.value.trim() || (base[field.key] ?? 'Not set');
+    updated[field.key] = getEditorInputValue(el) || (base[field.key] ?? 'Not set');
   });
   updated.fieldPrivacy = readFieldPrivacy(itemFieldSchema, 'itemEdit', base);
   return updated;
@@ -5931,16 +6107,14 @@ function renderTemplateEditorFields(profile) {
   if (!templateEditorFields) return;
   templateEditorFields.innerHTML = templateFieldSchema.map((field) => {
     const id = `templateEdit_${field.key}`;
-    const safeValue = escapeHtml(String(profile[field.key] ?? ''));
     if (field.key === 'target') {
       const currentTarget = normalizeTemplateTarget(profile[field.key] || 'all');
       return `<label>${field.label}<select class="setting-input" id="${id}">${TEMPLATE_TARGET_OPTIONS.map((option) => `<option value="${option.value}"${option.value === currentTarget ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select></label>`;
     }
-    if (field.type === 'textarea') {
-      return `<label>${field.label}<textarea class="setting-input" id="${id}">${safeValue}</textarea></label>`;
-    }
-    return `<label>${field.label}<input class="setting-input" id="${id}" type="text" value="${safeValue}" /></label>`;
+    return renderFieldInput(field, id, String(profile[field.key] ?? ''));
   }).join('');
+
+  bindColorPickers(templateEditorFields);
 }
 
 function readTemplateEditorValues(baseProfile) {
@@ -5948,7 +6122,7 @@ function readTemplateEditorValues(baseProfile) {
   templateFieldSchema.forEach((field) => {
     const input = document.getElementById(`templateEdit_${field.key}`);
     if (!input) return;
-    const value = (input.value || '').trim();
+    const value = getEditorInputValue(input);
     updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
   });
   updated.target = normalizeTemplateTarget(updated.target || baseProfile.target || 'all');
@@ -7167,8 +7341,14 @@ function renderAccountModule() {
     if (editAccountDescriptionInput) editAccountDescriptionInput.value = acct.description || '';
     if (editAccountTagsInput) editAccountTagsInput.value = acct.tags || '';
     if (editAccountCustomFieldsInput) editAccountCustomFieldsInput.value = acct.customFields || '';
-    if (editAccountPhotoInput) editAccountPhotoInput.value = acct.profilePhoto || initial;
-    if (editAccountBannerInput) editAccountBannerInput.value = acct.banner || `${name} Banner`;
+    if (editAccountPhotoInput) {
+      editAccountPhotoInput.value = acct.profilePhoto || initial;
+      primeStoredMediaInput(editAccountPhotoInput);
+    }
+    if (editAccountBannerInput) {
+      editAccountBannerInput.value = acct.banner || `${name} Banner`;
+      primeStoredMediaInput(editAccountBannerInput);
+    }
     if (editPasswordInput) editPasswordInput.value = '';
     if (editConfirmPasswordInput) editConfirmPasswordInput.value = '';
     showAccountError(editError, '');
@@ -7372,8 +7552,8 @@ if (saveAccountBtn) {
     const description = (editAccountDescriptionInput?.value || '').trim();
     const tags = (editAccountTagsInput?.value || '').trim();
     const customFields = (editAccountCustomFieldsInput?.value || '').trim();
-    const profilePhoto = (editAccountPhotoInput?.value || '').trim();
-    const banner = (editAccountBannerInput?.value || '').trim();
+    const profilePhoto = getEditorInputValue(editAccountPhotoInput);
+    const banner = getEditorInputValue(editAccountBannerInput);
     const newPassword = editPasswordInput?.value || '';
     const confirmPassword = editConfirmPasswordInput?.value || '';
 
@@ -8322,3 +8502,8 @@ if (systemEditColor) {
     syncColorValuePill(systemEditColor);
   });
 }
+
+enhanceMediaPickerInput(systemEditPhoto, { kind: 'photo' });
+enhanceMediaPickerInput(systemEditBanner, { kind: 'banner' });
+enhanceMediaPickerInput(editAccountPhotoInput, { kind: 'photo' });
+enhanceMediaPickerInput(editAccountBannerInput, { kind: 'banner' });

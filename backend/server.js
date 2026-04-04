@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-this-before-deploying';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
-const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 1024 * 1024);
+const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 6 * 1024 * 1024);
 const MAX_SYSTEMS_PER_ACCOUNT = Number(process.env.MAX_SYSTEMS_PER_ACCOUNT || 10);
 const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT || 2000);
 const REMOVED_ACCOUNT_USERNAMES = new Set(['pandorasbox']);
@@ -22,7 +22,7 @@ app.use(cors({
     ? FRONTEND_ORIGIN.split(',').map((entry) => entry.trim()).filter(Boolean)
     : true
 }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 function ensureDataFile() {
   if (!fs.existsSync(DATA_DIR)) {

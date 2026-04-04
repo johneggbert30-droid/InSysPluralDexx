@@ -2002,11 +2002,40 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   color: var(--text);
 }
 
+.media-input-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.media-input-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.media-input-row,
 .color-input-row {
   display: flex;
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.media-input-row .setting-input {
+  flex: 1;
+  min-width: 180px;
+}
+
+.media-upload-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.media-upload-btn input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .setting-input-color,
