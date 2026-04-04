@@ -5707,10 +5707,21 @@ const saveTemplateBtn = document.getElementById('saveTemplateBtn');
 const deleteTemplateBtn = document.getElementById('deleteTemplateBtn');
 const templateEditor = document.getElementById('templateEditor');
 const templateEditorFields = document.getElementById('templateEditorFields');
+const templateTargetButtons = document.querySelectorAll('[data-template-target-button]');
+
+const TEMPLATE_TARGET_OPTIONS = [
+  { value: 'all', label: 'All Profiles' },
+  { value: 'headmate', label: 'Headmate' },
+  { value: 'system', label: 'System' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'subsystem', label: 'Subsystem' },
+  { value: 'item', label: 'Item' },
+  { value: 'location', label: 'Location' }
+];
 
 const templateFieldSchema = [
   { key: 'name', label: 'Name' },
-  { key: 'target', label: 'Target module (headmate/system/item/partner/subsystem/all)' },
+  { key: 'target', label: 'Target type' },
   { key: 'category', label: 'Category' },
   { key: 'description', label: 'Description', type: 'textarea' },
   { key: 'defaultContent', label: 'Default content', type: 'textarea' },
@@ -5723,12 +5734,12 @@ const customTemplates = {};
 let selectedTemplateKey = null;
 let creatingTemplate = false;
 
-function createDefaultTemplate(name) {
+function createDefaultTemplate(name, target = 'all') {
   const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
   const color = colors[Math.floor(Math.random() * colors.length)];
   return {
     name,
-    target: 'all',
+    target: normalizeTemplateTarget(target),
     category: 'Custom',
     description: 'Not set',
     defaultContent: 'Not set',
@@ -5748,6 +5759,11 @@ function normalizeTemplateTarget(target) {
   if (value === 'subsystems') return 'subsystem';
   if (value === 'general') return 'all';
   return value;
+}
+
+function getTemplateTargetLabel(target) {
+  const normalized = normalizeTemplateTarget(target);
+  return TEMPLATE_TARGET_OPTIONS.find((entry) => entry.value === normalized)?.label || 'All Profiles';
 }
 
 function getTemplatesForTarget(target) {
@@ -5785,6 +5801,10 @@ function renderTemplateEditorFields(profile) {
   templateEditorFields.innerHTML = templateFieldSchema.map((field) => {
     const id = `templateEdit_${field.key}`;
     const safeValue = escapeHtml(String(profile[field.key] ?? ''));
+    if (field.key === 'target') {
+      const currentTarget = normalizeTemplateTarget(profile[field.key] || 'all');
+      return `<label>${field.label}<select class="setting-input" id="${id}">${TEMPLATE_TARGET_OPTIONS.map((option) => `<option value="${option.value}"${option.value === currentTarget ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select></label>`;
+    }
     if (field.type === 'textarea') {
       return `<label>${field.label}<textarea class="setting-input" id="${id}">${safeValue}</textarea></label>`;
     }
@@ -5800,6 +5820,7 @@ function readTemplateEditorValues(baseProfile) {
     const value = (input.value || '').trim();
     updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
   });
+  updated.target = normalizeTemplateTarget(updated.target || baseProfile.target || 'all');
   return updated;
 }
 
@@ -5808,7 +5829,7 @@ function renderTemplateProfile(profile) {
 
   templatePhoto.textContent = (profile.name?.[0] || 'T').toUpperCase();
   templateName.textContent = profile.name;
-  templateMeta.textContent = `${profile.target || 'all'} • ${profile.category || 'Uncategorized'}`;
+  templateMeta.textContent = `${getTemplateTargetLabel(profile.target || 'all')} • ${profile.category || 'Uncategorized'}`;
   templateBanner.style.setProperty('--headmate-color', profile.color || '#6c63ff');
 
   templateProfileGrid.innerHTML = templateFieldSchema.map((field) => {
@@ -5877,19 +5898,33 @@ if (templatesSearch) {
   });
 }
 
+function startTemplateCreation(target = 'all') {
+  creatingTemplate = true;
+  selectedTemplateKey = null;
+  const normalizedTarget = normalizeTemplateTarget(target || 'all');
+  const label = getTemplateTargetLabel(normalizedTarget);
+  const defaultName = `${label} Template ${Object.keys(customTemplates).length + 1}`;
+  const seed = createDefaultTemplate(defaultName, normalizedTarget);
+  renderTemplateProfile(seed);
+  renderTemplateEditorFields(seed);
+  if (saveTemplateBtn) saveTemplateBtn.disabled = false;
+  if (templateEditor) {
+    templateEditor.hidden = false;
+    templateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
 if (addTemplateBtn) {
   addTemplateBtn.addEventListener('click', () => {
-    creatingTemplate = true;
-    selectedTemplateKey = null;
-    const defaultName = `Template ${Object.keys(customTemplates).length + 1}`;
-    const seed = createDefaultTemplate(defaultName);
-    renderTemplateProfile(seed);
-    renderTemplateEditorFields(seed);
-    if (saveTemplateBtn) saveTemplateBtn.disabled = false;
-    if (templateEditor) {
-      templateEditor.hidden = false;
-      templateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    startTemplateCreation('all');
+  });
+}
+
+if (templateTargetButtons?.length) {
+  templateTargetButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      startTemplateCreation(button.dataset.templateTargetButton || 'all');
+    });
   });
 }
 
