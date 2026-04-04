@@ -3428,21 +3428,6 @@ function getTaggableProfileRecords() {
     });
   }
 
-  Object.entries(accounts || {}).forEach(([key, profile]) => {
-    if (currentAccount && normalizeLookupName(key) === normalizeLookupName(currentAccount.username || '')) return;
-    pushRecord('profile', key, 'Account', profile, {
-      subtitle: `@${profile?.username || key}`,
-      openable: normalizeLookupName(key) === normalizeLookupName(loggedInAccountKey || '')
-    });
-  });
-
-  (currentAccount?.friendProfiles || []).forEach((profile) => {
-    pushRecord('profile', profile?.username || profile?.name || 'friend', 'Account', profile, {
-      subtitle: `@${profile?.username || profile?.name || 'friend'}`,
-      openable: false
-    });
-  });
-
   Object.entries(getActiveHeadmateProfiles()).forEach(([key, profile]) => {
     pushRecord('parts', key, getSingularTerm('headmates'), profile, {
       subtitle: profile?.role || profile?.region || profile?.status || `${getSingularTerm('headmates')} profile`
@@ -3510,8 +3495,8 @@ function renderTagsModule() {
   }
 
   tagSummary.textContent = filteredRecords.length
-    ? `${filteredRecords.length} tagged profiles across ${tagEntries.length} tag${tagEntries.length === 1 ? '' : 's'}. Tags are separate from folders and can be used on any profile type.`
-    : 'No tagged profiles yet. Add comma-separated tags to any profile and it will show up here.';
+    ? `${filteredRecords.length} tagged profiles in this account across ${tagEntries.length} tag${tagEntries.length === 1 ? '' : 's'}. Tags stay separate from folders and stay scoped to this account.`
+    : 'No tagged profiles in this account yet. Add comma-separated tags to any profile here and it will show up.';
 
   tagCloud.innerHTML = [
     `<button class="tag-pill tag-pill-btn ${activeTagFilter === 'all' ? 'active' : ''}" type="button" data-open-tag="all">All tags</button>`,
