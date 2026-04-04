@@ -1,0 +1,6821 @@
+// =====================
+// Module Navigation
+// =====================
+const navItems = document.querySelectorAll('.nav-item');
+const pages = document.querySelectorAll('.module-page');
+const quickBtns = document.querySelectorAll('.quick-btn');
+const globalSearchInput = document.querySelector('.search-bar input');
+const dashboardActiveMembersStat = document.getElementById('dashboardActiveMembersStat');
+const dashboardHeadmatesStat = document.getElementById('dashboardHeadmatesStat');
+const dashboardUnreadMessagesStat = document.getElementById('dashboardUnreadMessagesStat');
+const dashboardHistoryEventsStat = document.getElementById('dashboardHistoryEventsStat');
+const dashboardActivityList = document.getElementById('dashboardActivityList');
+const dashboardModulePreviewGrid = document.getElementById('dashboardModulePreviewGrid');
+const dashboardCompletionList = document.getElementById('dashboardCompletionList');
+const dashboardHeroTitle = document.getElementById('dashboardHeroTitle');
+const dashboardHeroSubtitle = document.getElementById('dashboardHeroSubtitle');
+const dashboardCompletionAverage = document.getElementById('dashboardCompletionAverage');
+const dashboardPreviewCount = document.getElementById('dashboardPreviewCount');
+const dashboardCompletionChart = document.getElementById('dashboardCompletionChart');
+const dashboardActivityChart = document.getElementById('dashboardActivityChart');
+const dashboardCategoryPieChart = document.getElementById('dashboardCategoryPieChart');
+const dashboardCommunicationPieChart = document.getElementById('dashboardCommunicationPieChart');
+
+const APP_CONFIG = window.APP_CONFIG || {};
+const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
+const USE_BACKEND_AUTH = Boolean(APP_CONFIG.useBackendAuth && API_BASE_URL);
+
+const DEFAULT_TERMINOLOGY = {
+  headmates: 'Headmates',
+  system: 'System',
+  subsystem: 'Subsystems',
+  innerworld: 'Innerworld',
+  partners: 'Partners'
+};
+
+const terminologySettings = { ...DEFAULT_TERMINOLOGY };
+
+function getTermLabel(key) {
+  return String(terminologySettings[key] || DEFAULT_TERMINOLOGY[key] || key).trim();
+}
+
+function getSingularTerm(key) {
+  const label = getTermLabel(key);
+  if (/ies$/i.test(label)) return label.replace(/ies$/i, 'y');
+  if (/s$/i.test(label) && !/ss$/i.test(label)) return label.slice(0, -1);
+  return label;
+}
+
+function getTermCountLabel(key, count) {
+  return count === 1 ? getSingularTerm(key) : getTermLabel(key);
+}
+
+function getPluralTerm(key) {
+  const label = getTermLabel(key);
+  if (/ies$/i.test(label) || (/s$/i.test(label) && !/ss$/i.test(label))) return label;
+  if (/y$/i.test(label)) return label.replace(/y$/i, 'ies');
+  return `${label}s`;
+}
+
+function truncatePreview(text, maxLength = 72) {
+  const value = String(text || '').trim();
+  if (!value) return 'No preview available yet.';
+  return value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+}
+
+function isFilledDashboardField(value, options = {}) {
+  if (options.alwaysCount) return true;
+  const raw = String(value ?? '').trim();
+  if (!raw) return false;
+
+  const normalized = raw.toLowerCase();
+  const placeholders = ['not set', 'none', 'n/a', 'no description set.', 'new user profile'];
+  if (placeholders.includes(normalized)) return false;
+
+  if (options.profileName && normalized === `${String(options.profileName).trim().toLowerCase()} banner`) return false;
+  if (options.username && normalized === `${String(options.username).trim().toLowerCase()} banner`) return false;
+  if (options.initial && normalized === String(options.initial).trim().toLowerCase()) return false;
+
+  return true;
+}
+
+function calculateDashboardCompletion(profile, fieldRules = []) {
+  const profileName = profile?.name || profile?.username || '';
+  const username = profile?.username || '';
+  const initial = (profileName || username || '?')[0]?.toUpperCase() || '?';
+  const total = fieldRules.length || 1;
+  const filled = fieldRules.filter((rule) => isFilledDashboardField(profile?.[rule.key], {
+    profileName,
+    username,
+    initial,
+    alwaysCount: rule.alwaysCount
+  })).length;
+  const percent = Math.round((filled / total) * 100);
+  return { filled, total, percent };
+}
+
+function getDashboardCompletionStatus(percent) {
+  if (percent >= 90) return 'Complete';
+  if (percent >= 70) return 'Strong';
+  if (percent >= 45) return 'Growing';
+  return 'Needs details';
+}
+
+function renderDashboardCompletionStatus() {
+  if (!dashboardCompletionList) return { avgPercent: 0, count: 0 };
+
+  const systemRules = [
+    { key: 'name', alwaysCount: true },
+    { key: 'nickname' },
+    { key: 'description' },
+    { key: 'tags' },
+    { key: 'customFields' },
+    { key: 'profilePhoto' },
+    { key: 'banner' },
+    { key: 'color', alwaysCount: true },
+    { key: 'trustLevel', alwaysCount: true }
+  ];
+  const accountRules = [
+    { key: 'name', alwaysCount: true },
+    { key: 'username', alwaysCount: true },
+    { key: 'description' },
+    { key: 'tags' },
+    { key: 'customFields' },
+    { key: 'profilePhoto' },
+    { key: 'banner' }
+  ];
+
+  const activeUser = typeof getActiveUserName === 'function' ? getActiveUserName() : '';
+  const entries = [];
+
+  if (typeof systemProfiles === 'object' && systemProfiles) {
+    Object.entries(systemProfiles).forEach(([userKey, profile]) => {
+      const stats = calculateDashboardCompletion(profile, systemRules);
+      entries.push({
+        name: profile?.name || userKey,
+        subtitle: userKey === activeUser ? 'Active system' : 'System profile',
+        color: profile?.color || '#6c63ff',
+        sortBoost: userKey === activeUser ? 2 : 0,
+        ...stats,
+        status: getDashboardCompletionStatus(stats.percent)
+      });
+    });
+  }
+
+  if (typeof accounts === 'object' && loggedInAccountKey && accounts[loggedInAccountKey]) {
+    const accountProfile = accounts[loggedInAccountKey];
+    const stats = calculateDashboardCompletion(accountProfile, accountRules);
+    entries.unshift({
+      name: `@${loggedInAccountKey}`,
+      subtitle: 'Signed-in account',
+      color: accountProfile?.color || '#43d9ad',
+      sortBoost: 3,
+      ...stats,
+      status: getDashboardCompletionStatus(stats.percent)
+    });
+  }
+
+  if (!entries.length) {
+    dashboardCompletionList.innerHTML = '<p class="headmate-hint" style="margin:8px 0">No account data available yet.</p>';
+    if (dashboardCompletionAverage) dashboardCompletionAverage.textContent = '0';
+    return {
+      trackedCount: 0,
+      breakdown: { complete: 0, strong: 0, growing: 0, needsDetails: 0 }
+    };
+  }
+
+  const breakdown = entries.reduce((acc, entry) => {
+    if (entry.percent >= 90) acc.complete += 1;
+    else if (entry.percent >= 70) acc.strong += 1;
+    else if (entry.percent >= 45) acc.growing += 1;
+    else acc.needsDetails += 1;
+    return acc;
+  }, { complete: 0, strong: 0, growing: 0, needsDetails: 0 });
+
+  if (dashboardCompletionAverage) dashboardCompletionAverage.textContent = String(breakdown.complete);
+
+  dashboardCompletionList.innerHTML = entries
+    .sort((a, b) => (Number(b.sortBoost || 0) - Number(a.sortBoost || 0)) || (b.percent - a.percent))
+    .map((entry) => `
+      <article class="dashboard-completion-card">
+        <div class="dashboard-completion-head">
+          <div>
+            <strong>${escapeHtml(entry.name)}</strong>
+            <span>${escapeHtml(entry.subtitle)}</span>
+          </div>
+          <span class="badge">${escapeHtml(entry.status)}</span>
+        </div>
+        <div class="dashboard-completion-meta">
+          <span>${entry.filled}/${entry.total} fields filled</span>
+          <strong>${entry.percent}%</strong>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${entry.percent}%; background:${escapeHtml(entry.color)}"></div>
+        </div>
+      </article>
+    `).join('');
+
+  return {
+    trackedCount: entries.length,
+    breakdown
+  };
+}
+
+function renderPieChartMarkup(title, items = []) {
+  const safeItems = items.filter((item) => Number(item.value || 0) > 0);
+  const total = safeItems.reduce((sum, item) => sum + Number(item.value || 0), 0);
+
+  if (!total) {
+    return '<p class="headmate-hint" style="margin:8px 0">Not enough data yet to draw this pie chart.</p>';
+  }
+
+  let running = 0;
+  const segments = safeItems.map((item) => {
+    const start = running;
+    const next = running + (Number(item.value || 0) / total) * 100;
+    running = next;
+    return `${item.color} ${start}% ${next}%`;
+  }).join(', ');
+
+  return `
+    <div class="dashboard-pie-wrap">
+      <div class="dashboard-pie" style="background: conic-gradient(${segments});">
+        <div class="dashboard-pie-center">
+          <strong>${total}</strong>
+          <span>${escapeHtml(title)}</span>
+        </div>
+      </div>
+      <div class="dashboard-chart-legend">
+        ${safeItems.map((item) => `
+          <div>
+            <span class="chart-dot" style="--dot-color:${item.color};"></span>
+            <strong>${Number(item.value || 0)}</strong> ${escapeHtml(item.label)}
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderDashboardCharts(summary = {}) {
+  const completionBreakdown = summary.completionBreakdown || { complete: 0, strong: 0, growing: 0, needsDetails: 0 };
+  const systemsCount = Number(summary.systemsCount || 0);
+  const accountCount = Number(summary.accountCount || 0);
+  const headmateCount = Number(summary.headmateCount || 0);
+  const partnerCount = Number(summary.partnerCount || 0);
+  const subsystemCount = Number(summary.subsystemCount || 0);
+  const locationCount = Number(summary.locationCount || 0);
+  const journalCount = Number(summary.journalCount || 0);
+  const chatCount = Number(summary.chatCount || 0);
+  const unreadCount = Number(summary.unreadCount || 0);
+  const historyCount = Number(summary.historyCount || 0);
+
+  if (dashboardCompletionChart) {
+    dashboardCompletionChart.innerHTML = renderPieChartMarkup('profiles', [
+      { label: 'Complete', value: completionBreakdown.complete || 0, color: '#22c55e' },
+      { label: 'Strong', value: completionBreakdown.strong || 0, color: 'var(--accent)' },
+      { label: 'Growing', value: completionBreakdown.growing || 0, color: '#f5a623' },
+      { label: 'Needs details', value: completionBreakdown.needsDetails || 0, color: '#ff6584' }
+    ]);
+  }
+
+  if (dashboardActivityChart) {
+    const bars = [
+      { label: 'Headmates', value: headmateCount, color: 'var(--accent)' },
+      { label: 'Partners', value: partnerCount, color: '#ff6584' },
+      { label: 'Subsystems', value: subsystemCount, color: '#43d9ad' },
+      { label: 'Locations', value: locationCount, color: '#0984e3' },
+      { label: 'Journal', value: journalCount, color: '#f5a623' },
+      { label: 'Chats', value: chatCount, color: '#a29bfe' }
+    ];
+    const maxValue = Math.max(1, ...bars.map((bar) => Number(bar.value || 0)));
+
+    dashboardActivityChart.innerHTML = `
+      <div class="dashboard-bar-chart">
+        ${bars.map((bar) => `
+          <div class="dashboard-bar-row">
+            <span class="dashboard-bar-label">${escapeHtml(bar.label)}</span>
+            <div class="dashboard-bar-track">
+              <div class="dashboard-bar-fill" style="width:${Math.max(8, Math.round((Number(bar.value || 0) / maxValue) * 100))}%; --bar-color:${bar.color};"></div>
+            </div>
+            <strong>${Number(bar.value || 0)}</strong>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  if (dashboardCategoryPieChart) {
+    dashboardCategoryPieChart.innerHTML = renderPieChartMarkup('records', [
+      { label: 'Headmates', value: headmateCount, color: 'var(--accent)' },
+      { label: 'Partners', value: partnerCount, color: '#ff6584' },
+      { label: 'Subsystems', value: subsystemCount, color: '#43d9ad' },
+      { label: 'Locations', value: locationCount, color: '#0984e3' }
+    ]);
+  }
+
+  if (dashboardCommunicationPieChart) {
+    dashboardCommunicationPieChart.innerHTML = renderPieChartMarkup('updates', [
+      { label: 'Journal', value: journalCount, color: '#f5a623' },
+      { label: 'Chats', value: chatCount, color: '#a29bfe' },
+      { label: 'Unread', value: unreadCount, color: '#22c55e' },
+      { label: 'History', value: historyCount, color: '#e17055' }
+    ]);
+  }
+}
+
+function renderDashboardModulePreviews() {
+  if (!dashboardModulePreviewGrid) return;
+
+  const user = typeof getActiveUserName === 'function' ? getActiveUserName() : 'Alice';
+  const activeHeadmates = typeof getActiveHeadmateProfiles === 'function' ? Object.values(getActiveHeadmateProfiles()) : [];
+  const systemList = typeof systemProfiles === 'object' ? Object.keys(systemProfiles) : [];
+  const partnerList = typeof partnerProfiles === 'object' ? Object.values(partnerProfiles) : [];
+  const subsystemList = typeof getActiveSubsystems === 'function' ? Object.values(getActiveSubsystems()) : [];
+  const itemList = typeof itemProfiles === 'object' ? Object.values(itemProfiles) : [];
+  const journalListForUser = typeof ensureJournalEntryStore === 'function' ? ensureJournalEntryStore(user) : [];
+  const medicationList = typeof ensureMedicationStore === 'function' ? ensureMedicationStore(user) : [];
+  const locationList = typeof locationProfiles === 'object' ? Object.values(locationProfiles) : [];
+  const templateList = typeof customTemplates === 'object' ? Object.values(customTemplates) : [];
+  const historyList = typeof historyEvents !== 'undefined' ? historyEvents : [];
+  const accountList = typeof accounts === 'object' ? Object.keys(accounts) : [];
+  const chatThreads = typeof chatMessagesByUser === 'object' ? Object.values(chatMessagesByUser[user] || {}) : [];
+  const latestChatEntry = chatThreads.flat().sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))[0];
+  const latestMessageSubject = document.querySelector('#page-messages tbody tr td:nth-child(2)')?.textContent?.trim() || 'Inbox overview';
+  const ruleCount = document.querySelectorAll('#page-switchboard .journal-card').length;
+  const mediaCount = document.querySelectorAll('#page-gallery .gallery-item').length;
+  const appTitleText = document.getElementById('appTitle')?.textContent?.trim() || 'System Hub';
+
+  const previewMap = {
+    parts: {
+      count: activeHeadmates.length,
+      summary: activeHeadmates.slice(0, 3).map((profile) => profile.name).join(', ') || `No ${getPluralTerm('headmates').toLowerCase()} yet`,
+      meta: 'Folders, tags, and profile cards'
+    },
+    system: {
+      count: systemList.length,
+      summary: systemList.length ? `Active: ${user}` : 'No systems added yet',
+      meta: 'Switch and edit system accounts'
+    },
+    friends: {
+      count: partnerList.length,
+      summary: partnerList[0]?.name ? `Latest: ${partnerList[0].name}` : 'No partners tracked yet',
+      meta: 'Relationship tracker'
+    },
+    partners: {
+      count: subsystemList.length,
+      summary: subsystemList[0]?.name ? `Latest: ${subsystemList[0].name}` : 'No subsystems yet',
+      meta: 'Membership hubs and links'
+    },
+    items: {
+      count: itemList.length,
+      summary: itemList[0]?.name ? `Latest: ${itemList[0].name}` : 'No items saved yet',
+      meta: 'Tagged objects and linked items'
+    },
+    journal: {
+      count: journalListForUser.length,
+      summary: journalListForUser[0]?.title || 'No journal entries yet',
+      meta: 'Recent system journaling'
+    },
+    chat: {
+      count: chatThreads.filter((thread) => thread.length).length,
+      summary: latestChatEntry ? (latestChatEntry.type === 'poll' ? `Poll: ${latestChatEntry.question || 'Untitled poll'}` : latestChatEntry.text || 'Recent chat message') : 'No chat activity yet',
+      meta: 'Inner chat conversations'
+    },
+    messages: {
+      count: document.querySelectorAll('#page-messages .badge.green').length,
+      summary: latestMessageSubject,
+      meta: 'Inbox and notifications'
+    },
+    health: {
+      count: medicationList.length,
+      summary: medicationList[0]?.name ? `Tracking: ${medicationList[0].name}` : 'No meds tracked yet',
+      meta: 'Medication and health log'
+    },
+    switchboard: {
+      count: ruleCount,
+      summary: ruleCount ? `${ruleCount} rule${ruleCount === 1 ? '' : 's'} set` : 'No rules yet',
+      meta: 'Safety and communication rules'
+    },
+    gallery: {
+      count: mediaCount,
+      summary: `${mediaCount} media item${mediaCount === 1 ? '' : 's'} available`,
+      meta: 'Media library preview'
+    },
+    templates: {
+      count: templateList.length,
+      summary: templateList[0]?.name ? `Latest: ${templateList[0].name}` : 'No templates saved yet',
+      meta: 'Reusable form templates'
+    },
+    calendar: {
+      count: historyList.length,
+      summary: historyList[0]?.title || 'No history events yet',
+      meta: 'Timeline and milestones'
+    },
+    notifications: {
+      count: locationList.length,
+      summary: locationList[0]?.name ? `Focused: ${locationList[0].name}` : 'No innerworld locations yet',
+      meta: 'Innerworld map and places'
+    },
+    profile: {
+      count: accountList.length,
+      summary: loggedInAccountKey ? `Signed in as @${loggedInAccountKey}` : 'No account signed in',
+      meta: 'Account profile tools'
+    },
+    settings: {
+      count: document.body.classList.contains('dark') ? 'Dark' : 'Light',
+      summary: appTitleText,
+      meta: 'Theme, privacy, and terminology'
+    }
+  };
+
+  const navEntries = Array.from(document.querySelectorAll('.sidebar .nav-item'))
+    .filter((item) => item.dataset.module && item.dataset.module !== 'dashboard')
+    .map((item) => ({
+      module: item.dataset.module,
+      label: item.querySelector('.nav-label')?.textContent?.trim() || item.dataset.module,
+      icon: item.querySelector('.nav-icon')?.textContent?.trim() || '•'
+    }));
+
+  if (dashboardPreviewCount) dashboardPreviewCount.textContent = String(navEntries.length);
+
+  dashboardModulePreviewGrid.innerHTML = navEntries.map(({ module, label, icon }) => {
+    const preview = previewMap[module] || { count: '—', summary: 'Open this tab to manage its information.', meta: 'Preview unavailable' };
+    return `
+      <button class="dashboard-preview-card" type="button" data-dashboard-module="${module}">
+        <div class="dashboard-preview-head">
+          <span class="dashboard-preview-title"><span class="dashboard-preview-icon">${escapeHtml(icon)}</span><strong>${escapeHtml(label)}</strong></span>
+          <span class="badge">${escapeHtml(String(preview.count ?? '—'))}</span>
+        </div>
+        <p>${escapeHtml(truncatePreview(preview.summary))}</p>
+        <small>${escapeHtml(preview.meta || 'Open this tab')}</small>
+      </button>
+    `;
+  }).join('');
+}
+
+function renderDashboard() {
+  try {
+    const user = getActiveUserName();
+    const systemsCount = document.querySelectorAll('.user-option[data-user]').length;
+    const headmateCount = Object.keys(getActiveHeadmateProfiles()).length;
+    const journalCount = ensureJournalEntryStore(user).length;
+
+    if (dashboardActiveMembersStat) {
+      dashboardActiveMembersStat.textContent = String(systemsCount);
+      dashboardActiveMembersStat.closest('.card')?.querySelector('h3')?.replaceChildren(document.createTextNode('Systems'));
+    }
+    if (dashboardHeadmatesStat) {
+      dashboardHeadmatesStat.textContent = String(headmateCount);
+      dashboardHeadmatesStat.closest('.card')?.querySelector('h3')?.replaceChildren(document.createTextNode(getTermLabel('headmates')));
+    }
+    if (dashboardUnreadMessagesStat) {
+      dashboardUnreadMessagesStat.textContent = String(document.querySelectorAll('#page-messages .badge.green').length);
+    }
+    if (dashboardHistoryEventsStat) {
+      dashboardHistoryEventsStat.textContent = String(historyEvents.length);
+    }
+
+    const completionInfo = renderDashboardCompletionStatus();
+    const unreadCount = document.querySelectorAll('#page-messages .badge.green').length;
+    const partnerCount = typeof partnerProfiles === 'object' ? Object.keys(partnerProfiles).length : 0;
+    const subsystemCount = typeof getActiveSubsystems === 'function' ? Object.keys(getActiveSubsystems()).length : 0;
+    const locationCount = typeof locationProfiles === 'object' ? Object.keys(locationProfiles).length : 0;
+    const accountCount = typeof accounts === 'object' ? Object.keys(accounts).length : 0;
+    const chatCount = typeof chatMessagesByUser === 'object' ? Object.values(chatMessagesByUser[user] || {}).filter((thread) => Array.isArray(thread) && thread.length).length : 0;
+
+    if (dashboardHeroTitle) {
+      const welcomeName = (typeof accounts === 'object' && loggedInAccountKey && accounts[loggedInAccountKey]?.name) || user || 'friend';
+      dashboardHeroTitle.textContent = `Welcome back, ${welcomeName}`;
+    }
+    if (dashboardHeroSubtitle) {
+      dashboardHeroSubtitle.textContent = `${systemsCount} systems, ${headmateCount} ${getPluralTerm('headmates').toLowerCase()}, ${journalCount} journal entr${journalCount === 1 ? 'y' : 'ies'}, and ${completionInfo.breakdown.complete || 0} complete profile${(completionInfo.breakdown.complete || 0) === 1 ? '' : 's'}.`;
+    }
+
+    renderDashboardCharts({
+      completionBreakdown: completionInfo.breakdown,
+      systemsCount,
+      accountCount,
+      headmateCount,
+      partnerCount,
+      subsystemCount,
+      locationCount,
+      journalCount,
+      chatCount,
+      unreadCount,
+      historyCount: historyEvents.length
+    });
+
+    if (dashboardActivityList) {
+      const items = [];
+      ensureJournalEntryStore(user).slice(0, 3).forEach((entry) => {
+        items.push({ ts: entry.createdAt || Date.now(), badge: entry.tag || 'Journal', text: `Logged "${entry.title}"` });
+      });
+      ensureMedicationCheckinStore(user).slice(-2).forEach((entry) => {
+        items.push({ ts: entry.takenAt || Date.now(), badge: 'Health', text: `Medication taken: ${entry.medName}` });
+      });
+      getSortedHistoryEvents({ ignoreFilters: true }).slice(0, 3).forEach((entry) => {
+        items.push({ ts: new Date(`${entry.date || '1970-01-01'}T00:00:00`).getTime(), badge: entry.type || 'History', text: entry.title });
+      });
+
+      const recent = items.sort((a, b) => b.ts - a.ts).slice(0, 5);
+      dashboardActivityList.innerHTML = recent.length
+        ? recent.map((item) => `<li><span class="badge">${escapeHtml(item.badge)}</span> ${escapeHtml(item.text)}</li>`).join('')
+        : `<li><span class="badge">${escapeHtml(getTermLabel('system'))}</span> No recent activity yet.</li>`;
+    }
+
+    renderDashboardModulePreviews();
+  } catch (_err) {
+    // Some stores initialize later; dashboard will refresh again after setup.
+  }
+}
+
+function navigateTo(module) {
+  if (typeof isSignedIn === 'function' && !isSignedIn() && module !== 'profile') {
+    safeAlert('Please sign in to use the app.');
+    module = 'profile';
+  }
+
+  if (module !== 'profile' && typeof canAccessModule === 'function' && !canAccessModule(module)) {
+    safeAlert(`That section is hidden for your current trust level.`);
+    module = 'dashboard';
+  }
+
+  navItems.forEach(i => i.classList.toggle('active', i.dataset.module === module));
+  pages.forEach(p => p.classList.toggle('active', p.id === `page-${module}`));
+  renderDashboard();
+}
+
+navItems.forEach(item => {
+  item.addEventListener('click', () => {
+    navigateTo(item.dataset.module);
+    if (isMobileScreen()) setSidebarCollapsed(true);
+  });
+});
+
+quickBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    navigateTo(btn.dataset.module);
+    if (isMobileScreen()) setSidebarCollapsed(true);
+  });
+});
+
+if (dashboardModulePreviewGrid) {
+  dashboardModulePreviewGrid.addEventListener('click', (event) => {
+    const card = event.target.closest('[data-dashboard-module]');
+    if (!card) return;
+    navigateTo(card.dataset.dashboardModule);
+    if (isMobileScreen()) setSidebarCollapsed(true);
+  });
+}
+
+// =====================
+// Sidebar Toggle
+// =====================
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebarToggle');
+const compactSidebarSwitch = document.getElementById('compactSidebar');
+const sidebarBackdrop = document.getElementById('sidebarBackdrop');
+const mobileQuery = window.matchMedia('(max-width: 900px)');
+
+function isMobileScreen() {
+  return mobileQuery.matches;
+}
+
+function setSidebarCollapsed(collapsed) {
+  if (isMobileScreen()) {
+    sidebar.classList.toggle('mobile-open', !collapsed);
+    sidebar.classList.remove('collapsed');
+    if (sidebarBackdrop) sidebarBackdrop.classList.toggle('open', !collapsed);
+    if (compactSidebarSwitch) compactSidebarSwitch.checked = false;
+    return;
+  }
+
+  sidebar.classList.toggle('collapsed', collapsed);
+  sidebar.classList.remove('mobile-open');
+  if (sidebarBackdrop) sidebarBackdrop.classList.remove('open');
+  if (compactSidebarSwitch) compactSidebarSwitch.checked = collapsed;
+}
+
+sidebarToggle.addEventListener('click', () => {
+  const isOpen = isMobileScreen()
+    ? sidebar.classList.contains('mobile-open')
+    : !sidebar.classList.contains('collapsed');
+
+  setSidebarCollapsed(isOpen);
+});
+
+if (compactSidebarSwitch) {
+  compactSidebarSwitch.addEventListener('change', () => {
+    setSidebarCollapsed(compactSidebarSwitch.checked);
+  });
+}
+
+if (sidebarBackdrop) {
+  sidebarBackdrop.addEventListener('click', () => setSidebarCollapsed(true));
+}
+
+window.addEventListener('resize', () => {
+  if (!isMobileScreen()) {
+    sidebar.classList.remove('mobile-open');
+    if (sidebarBackdrop) sidebarBackdrop.classList.remove('open');
+  }
+});
+
+if (isMobileScreen()) {
+  setSidebarCollapsed(true);
+}
+
+// =====================
+// Dark Mode
+// =====================
+const darkModeSwitch = document.getElementById('darkModeSwitch');
+const darkModeSettingSwitch = document.getElementById('darkModeSettingSwitch');
+const fontSizeSetting = document.getElementById('fontSizeSetting');
+const fontSizeValue = document.getElementById('fontSizeValue');
+const resetFontSizeBtn = document.getElementById('resetFontSizeBtn');
+const DEFAULT_FONT_SIZE = 15;
+
+function setDarkMode(enabled) {
+  document.body.classList.toggle('dark', enabled);
+  if (darkModeSwitch) darkModeSwitch.checked = enabled;
+  if (darkModeSettingSwitch) darkModeSettingSwitch.checked = enabled;
+  localStorage.setItem('darkMode', enabled ? '1' : '0');
+}
+
+function applyFontSize(size) {
+  const px = Math.max(12, Math.min(22, Number(size) || DEFAULT_FONT_SIZE));
+  document.documentElement.style.setProperty('--base-font-size', `${px}px`);
+  if (fontSizeSetting) fontSizeSetting.value = String(px);
+  if (fontSizeValue) fontSizeValue.textContent = `${px}px`;
+  localStorage.setItem('fontSizePx', String(px));
+}
+
+// Sync both toggles
+if (darkModeSwitch) {
+  darkModeSwitch.addEventListener('change', () => setDarkMode(darkModeSwitch.checked));
+}
+if (darkModeSettingSwitch) {
+  darkModeSettingSwitch.addEventListener('change', () => setDarkMode(darkModeSettingSwitch.checked));
+}
+if (fontSizeSetting) {
+  fontSizeSetting.addEventListener('input', () => applyFontSize(fontSizeSetting.value));
+}
+if (resetFontSizeBtn) {
+  resetFontSizeBtn.addEventListener('click', () => applyFontSize(DEFAULT_FONT_SIZE));
+}
+
+// Load persisted preference
+if (localStorage.getItem('darkMode') === '1') setDarkMode(true);
+applyFontSize(localStorage.getItem('fontSizePx') || DEFAULT_FONT_SIZE);
+
+function safePrompt(message, defaultValue = '') {
+  if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+    try {
+      return window.prompt(message, defaultValue);
+    } catch (_err) {
+      return defaultValue;
+    }
+  }
+  return defaultValue;
+}
+
+function safeConfirm(message) {
+  if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
+    try {
+      return window.confirm(message);
+    } catch (_err) {
+      return true;
+    }
+  }
+  return true;
+}
+
+function safeAlert(message) {
+  if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+    try {
+      window.alert(message);
+    } catch (_err) {
+      // no-op in restricted contexts
+    }
+  }
+}
+
+// =====================
+// User Switcher
+// =====================
+const userSwitcherBtn = document.getElementById('userSwitcherBtn');
+const userDropdown = document.getElementById('userDropdown');
+const currentAvatar = document.getElementById('currentAvatar');
+const currentUsername = document.getElementById('currentUsername');
+const profileAvatar = document.getElementById('profileAvatar');
+const profileName = document.getElementById('profileName');
+const systemActiveAvatar = document.getElementById('systemActiveAvatar');
+const systemActiveName = document.getElementById('systemActiveName');
+const systemProfilesGrid = document.getElementById('systemProfilesGrid');
+const addSystemProfileBtn = document.getElementById('addSystemProfileBtn');
+const addSystemFromTemplateBtn = document.getElementById('addSystemFromTemplateBtn');
+const systemProfileDrafts = {};
+const systemProfileEditor = document.getElementById('systemProfileEditor');
+const systemEditName = document.getElementById('systemEditName');
+const systemEditNickname = document.getElementById('systemEditNickname');
+const systemEditDescription = document.getElementById('systemEditDescription');
+const systemEditTags = document.getElementById('systemEditTags');
+const systemEditCustomFields = document.getElementById('systemEditCustomFields');
+const systemEditColor = document.getElementById('systemEditColor');
+const systemEditColorPicker = document.getElementById('systemEditColorPicker');
+const systemEditBanner = document.getElementById('systemEditBanner');
+const systemEditPhoto = document.getElementById('systemEditPhoto');
+const saveSystemEditorBtn = document.getElementById('saveSystemEditorBtn');
+const cancelSystemEditorBtn = document.getElementById('cancelSystemEditorBtn');
+const systemEditTrustLevel = document.getElementById('systemEditTrustLevel');
+let editingSystemUser = null;
+let creatingSystemProfile = false;
+
+const systemProfiles = {
+  Alice: {
+    name: 'Alice',
+    nickname: 'Ali',
+    description: 'Coordinates settings and keeps the hub organized.',
+    tags: 'admin, organizer',
+    customFields: 'Comfort item: Lavender tea',
+    color: '#6c63ff',
+    banner: 'Aurora Admin',
+    profilePhoto: 'A',
+    trustLevel: 'private'
+  },
+  Bob: {
+    name: 'Bob',
+    nickname: 'B',
+    description: 'Moderation focused and helps keep communication clear.',
+    tags: 'moderation, clarity',
+    customFields: 'Strength: De-escalation',
+    color: '#ff6584',
+    banner: 'Guardian Watch',
+    profilePhoto: 'B',
+    trustLevel: 'partners'
+  },
+  Carol: {
+    name: 'Carol',
+    nickname: 'Caz',
+    description: 'Primary support contact for check-ins and follow-up.',
+    tags: 'support, check-ins',
+    customFields: 'Availability: Evenings',
+    color: '#43d9ad',
+    banner: 'Calm Harbor',
+    profilePhoto: 'C',
+    trustLevel: 'trusted'
+  },
+  Dan: {
+    name: 'Dan',
+    nickname: 'D',
+    description: 'Reviews trends and summarizes system activity.',
+    tags: 'analysis, summaries',
+    customFields: 'Focus: Pattern spotting',
+    color: '#f5a623',
+    banner: 'Signal Board',
+    profilePhoto: 'D',
+    trustLevel: 'friends'
+  }
+};
+
+function ensureSystemProfile(userName, initial, color) {
+  if (!systemProfiles[userName]) {
+    systemProfiles[userName] = {
+      name: userName,
+      nickname: `${initial}`,
+      description: 'No description set.',
+      tags: 'Not set',
+      customFields: 'Not set',
+      color,
+      banner: `${userName} Banner`,
+      profilePhoto: initial,
+      trustLevel: 'private'
+    };
+  }
+}
+
+function applyUserSelection(user, initial, color, activeOption) {
+  ensureSystemProfile(user, initial, color);
+
+  const activePhoto = systemProfiles[user]?.profilePhoto || initial;
+  applyPhotoStyle(currentAvatar, activePhoto, initial, color);
+  currentUsername.textContent = user;
+
+  if (systemActiveAvatar) {
+    applyPhotoStyle(systemActiveAvatar, activePhoto, initial, color);
+  }
+  if (systemActiveName) systemActiveName.textContent = user;
+
+  document.querySelectorAll('.user-option').forEach(o => o.classList.remove('active'));
+  if (activeOption) activeOption.classList.add('active');
+  userDropdown.classList.remove('open');
+  if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+  if (typeof renderSubsystemsGrid === 'function') {
+    selectedSubsystemKey = null;
+    if (subsystemProfile) subsystemProfile.hidden = true;
+    renderSubsystemsGrid();
+  }
+    if (typeof renderChatSidebar === 'function') {
+      selectedChatAlterKey = null;
+      renderChatSidebar();
+    }
+    if (typeof renderMedicationTracker === 'function') {
+      renderMedicationTracker();
+    }
+    if (typeof renderJournalModule === 'function') {
+      if (logShortcutEditor) logShortcutEditor.hidden = true;
+      renderJournalModule();
+    }
+    renderSystemProfiles();
+    const activeModule = document.querySelector('.nav-item.active')?.dataset.module || 'dashboard';
+    if (typeof canAccessModule === 'function' && !canAccessModule(activeModule)) {
+      navigateTo('dashboard');
+    } else {
+      renderDashboard();
+    }
+}
+
+function attachUserOptionClick(option) {
+  option.addEventListener('click', (e) => {
+    e.stopPropagation();
+    applyUserSelection(
+      option.dataset.user,
+      option.dataset.initial,
+      option.dataset.color,
+      option
+    );
+  });
+}
+
+function createUserOption(name, initial, color) {
+  const option = document.createElement('div');
+  option.className = 'user-option';
+  option.dataset.user = name;
+  option.dataset.initial = initial;
+  option.dataset.color = color;
+  option.innerHTML = `<div class="avatar" style="background:${color}">${initial}</div><span>${escapeHtml(name)}</span>`;
+  attachUserOptionClick(option);
+  return option;
+}
+
+function renderSystemProfiles() {
+  if (!systemProfilesGrid) return;
+
+  const userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
+  const activeUser = currentUsername?.textContent?.trim();
+
+  const cardsHtml = userOptions.map((opt) => {
+    const user = opt.dataset.user;
+    const initial = opt.dataset.initial;
+    const color = opt.dataset.color;
+    ensureSystemProfile(user, initial, color);
+
+    const profile = systemProfiles[user];
+    const photo = profile.profilePhoto || initial;
+    const hasPhotoUrl = isMediaUrl(photo);
+    const banner = profile.banner || '';
+    const hasBannerUrl = isMediaUrl(banner);
+    const photoStyle = hasPhotoUrl
+      ? `style="background-image:url('${escapeCssUrl(photo)}'); color:transparent; background-color:${profile.color}; background-size:cover; background-position:center; background-repeat:no-repeat;"`
+      : `style="background-color:${profile.color};"`;
+    const bannerStyle = hasBannerUrl
+      ? `style="--profile-color:${profile.color}; background-image:linear-gradient(120deg, rgba(0,0,0,0.38), rgba(0,0,0,0.12)), url('${escapeCssUrl(banner)}'); background-size:cover; background-position:center; background-repeat:no-repeat;"`
+      : `style="--profile-color:${profile.color}"`;
+
+    let partnerKey = null;
+    try {
+      partnerKey = findPartnerKeyByLinkedSystemUser(user);
+    } catch (_err) {
+      partnerKey = null;
+    }
+    return `
+      <article class="system-profile-card" data-system-user="${encodeURIComponent(user)}">
+        <div class="system-profile-banner" ${bannerStyle} title="${escapeHtml(banner)}"></div>
+        <div class="system-profile-content">
+          <div class="system-profile-photo" ${photoStyle}>${hasPhotoUrl ? '' : escapeHtml(photo)}</div>
+          <div class="system-profile-title">
+            <h4>${escapeHtml(profile.name)}</h4>
+            <div class="system-profile-description">${renderMarkdown(profile.description)}</div>
+          </div>
+          <div class="system-profile-fields">
+            <div class="system-profile-field"><strong>Nickname</strong><span>${escapeHtml(profile.nickname)}</span></div>
+            <div class="system-profile-field"><strong>Tags</strong><span>${escapeHtml(profile.tags || 'Not set')}</span></div>
+            <div class="system-profile-field"><strong>Color</strong><span>${escapeHtml(profile.color)}</span></div>
+            <div class="system-profile-field"><strong>Banner</strong><span>${escapeHtml(profile.banner)}</span></div>
+            <div class="system-profile-field"><strong>Profile Photo</strong><span>${escapeHtml(photo)}</span></div>
+          </div>
+          <div class="system-profile-actions">
+            <button class="btn-sm" type="button" data-system-action="switch" data-profile-user="${encodeURIComponent(user)}">${activeUser === user ? 'Active Account' : `Switch to ${escapeHtml(user)}`}</button>
+            <button class="btn-sm" type="button" data-system-action="partner" data-profile-user="${encodeURIComponent(user)}">${partnerKey ? 'Open Partner' : 'Set as Partner'}</button>
+            <button class="btn-sm" type="button" data-system-action="edit" data-profile-user="${encodeURIComponent(user)}">Edit</button>
+            <button class="btn-sm" type="button" data-system-action="delete" data-profile-user="${encodeURIComponent(user)}">Delete</button>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  systemProfilesGrid.innerHTML = cardsHtml;
+}
+
+userSwitcherBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (typeof isSignedIn === 'function' && !isSignedIn()) {
+    navigateTo('profile');
+    return;
+  }
+  userDropdown.classList.toggle('open');
+});
+
+document.addEventListener('click', () => userDropdown.classList.remove('open'));
+
+document.querySelectorAll('.user-option[data-user]').forEach(opt => {
+  attachUserOptionClick(opt);
+});
+
+document.getElementById('addUserBtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const defaultName = `User ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
+  const name = safePrompt('Enter new user name:', defaultName);
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+  const initial = trimmed[0].toUpperCase();
+  const colors = ['#6c63ff','#ff6584','#43d9ad','#f5a623','#a29bfe','#fd79a8','#0984e3','#e17055'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+
+  const opt = createUserOption(trimmed, initial, color);
+  ensureSystemProfile(trimmed, initial, color);
+
+  const addBtn = document.getElementById('addUserBtn');
+  userDropdown.insertBefore(opt, addBtn.previousElementSibling.nextSibling);
+  userDropdown.classList.remove('open');
+  renderSystemProfiles();
+});
+
+if (systemProfilesGrid) {
+  systemProfilesGrid.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-system-action]');
+    if (!button) return;
+
+    const action = button.dataset.systemAction;
+    const user = decodeURIComponent(button.dataset.profileUser || '');
+    const matchingOpt = document.querySelector(`.user-option[data-user="${user}"]`);
+
+    if (action === 'switch') {
+      if (!matchingOpt) return;
+      applyUserSelection(
+        matchingOpt.dataset.user,
+        matchingOpt.dataset.initial,
+        matchingOpt.dataset.color,
+        matchingOpt
+      );
+      return;
+    }
+
+    if (action === 'partner') {
+      const partnerKey = typeof upsertPartnerFromSystemUser === 'function' ? upsertPartnerFromSystemUser(user) : null;
+      if (!partnerKey) return;
+      openProfileFromLink('friends', partnerKey);
+      return;
+    }
+
+    if (action === 'edit') {
+      const profile = systemProfiles[user];
+      if (!profile) return;
+      editingSystemUser = user;
+      creatingSystemProfile = false;
+      systemEditName.value = profile.name;
+      systemEditNickname.value = profile.nickname;
+      systemEditDescription.value = profile.description;
+      if (systemEditTags) systemEditTags.value = profile.tags || '';
+      if (systemEditCustomFields) systemEditCustomFields.value = profile.customFields || '';
+      systemEditColor.value = profile.color;
+      if (systemEditColorPicker) systemEditColorPicker.value = normalizeHexColor(profile.color, '#6c63ff');
+      systemEditBanner.value = profile.banner;
+      systemEditPhoto.value = profile.profilePhoto;
+      if (systemEditTrustLevel) systemEditTrustLevel.value = profile.trustLevel || 'private';
+      systemProfileEditor.hidden = false;
+      systemProfileEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!matchingOpt) return;
+      if (!safeConfirm(`Delete profile for ${user}?`)) return;
+
+      delete systemProfiles[user];
+      delete headmateProfilesByUser[user];
+      Object.values(partnerProfiles).forEach((partner) => {
+        if (normalizeLookupName(partner.linkedSystemUser) === normalizeLookupName(user)) {
+          partner.linkedSystemUser = 'Not set';
+        }
+      });
+      matchingOpt.remove();
+
+      const remainingOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
+      if (!remainingOptions.length) {
+        applyPhotoStyle(currentAvatar, '', '?', '#888');
+        currentUsername.textContent = 'No user';
+        if (systemActiveAvatar) {
+          applyPhotoStyle(systemActiveAvatar, '', '?', '#888');
+        }
+        if (systemActiveName) systemActiveName.textContent = 'No user';
+        renderSystemProfiles();
+        return;
+      }
+
+      if (currentUsername.textContent === user) {
+        const fallback = remainingOptions[0];
+        applyUserSelection(
+          fallback.dataset.user,
+          fallback.dataset.initial,
+          fallback.dataset.color,
+          fallback
+        );
+      } else {
+        renderSystemProfiles();
+      }
+    }
+  });
+}
+
+if (addSystemProfileBtn) {
+  addSystemProfileBtn.addEventListener('click', () => {
+    editingSystemUser = null;
+    creatingSystemProfile = true;
+    const defaultName = `Profile ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
+    systemEditName.value = defaultName;
+    systemEditNickname.value = defaultName[0].toUpperCase();
+    systemEditDescription.value = 'New user profile';
+    if (systemEditTags) systemEditTags.value = 'Not set';
+    if (systemEditCustomFields) systemEditCustomFields.value = 'Not set';
+    systemEditColor.value = '#6c63ff';
+    if (systemEditColorPicker) systemEditColorPicker.value = '#6c63ff';
+    systemEditBanner.value = `${defaultName} Banner`;
+    systemEditPhoto.value = defaultName[0].toUpperCase();
+    if (systemEditTrustLevel) systemEditTrustLevel.value = 'private';
+    systemProfileEditor.hidden = false;
+    systemProfileEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (addSystemFromTemplateBtn) {
+  addSystemFromTemplateBtn.addEventListener('click', () => {
+    const template = pickTemplateForTarget('system');
+    if (!template) return;
+    editingSystemUser = null;
+    creatingSystemProfile = true;
+    const fallbackName = `Profile ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
+    const templatedName = (template.name || '').trim() || fallbackName;
+    systemEditName.value = templatedName;
+    systemEditNickname.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
+    systemEditDescription.value = template.description || 'New user profile';
+    if (systemEditTags) systemEditTags.value = template.category || 'Not set';
+    if (systemEditCustomFields) systemEditCustomFields.value = template.defaultContent || 'Not set';
+    systemEditColor.value = template.color || '#6c63ff';
+    if (systemEditColorPicker) systemEditColorPicker.value = normalizeHexColor(systemEditColor.value, '#6c63ff');
+    systemEditBanner.value = template.banner || `${templatedName} Banner`;
+    systemEditPhoto.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
+    systemProfileEditor.hidden = false;
+    systemProfileEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (saveSystemEditorBtn) {
+  saveSystemEditorBtn.addEventListener('click', () => {
+    const newName = (systemEditName.value || '').trim();
+    if (!newName) {
+      safeAlert('Name is required.');
+      return;
+    }
+
+    const draft = {
+      name: newName,
+      nickname: (systemEditNickname.value || '').trim() || newName[0].toUpperCase(),
+      description: (systemEditDescription.value || '').trim() || 'No description set.',
+      tags: (systemEditTags?.value || '').trim() || 'Not set',
+      customFields: (systemEditCustomFields?.value || '').trim() || 'Not set',
+      color: (systemEditColor.value || '').trim() || '#6c63ff',
+      banner: (systemEditBanner.value || '').trim() || `${newName} Banner`,
+      profilePhoto: (systemEditPhoto.value || '').trim() || newName[0].toUpperCase(),
+      trustLevel: (systemEditTrustLevel?.value) || 'private'
+    };
+
+    const existingOpt = editingSystemUser
+      ? document.querySelector(`.user-option[data-user="${editingSystemUser}"]`)
+      : null;
+
+    const duplicateOpt = Array.from(document.querySelectorAll('.user-option[data-user]'))
+      .find((opt) => opt.dataset.user === newName && opt !== existingOpt);
+    if (duplicateOpt) {
+      safeAlert('A user with that name already exists.');
+      return;
+    }
+
+    let option = existingOpt;
+    if (!option) {
+      const addBtn = document.getElementById('addUserBtn');
+      option = createUserOption(newName, newName[0].toUpperCase(), draft.color);
+      if (addBtn) userDropdown.insertBefore(option, addBtn.previousElementSibling.nextSibling);
+    }
+
+    const previousName = editingSystemUser;
+    if (previousName && previousName !== newName) {
+      delete systemProfiles[previousName];
+      if (headmateProfilesByUser[previousName]) {
+        headmateProfilesByUser[newName] = headmateProfilesByUser[previousName];
+        delete headmateProfilesByUser[previousName];
+      }
+      Object.values(partnerProfiles).forEach((partner) => {
+        if (normalizeLookupName(partner.linkedSystemUser) === normalizeLookupName(previousName)) {
+          partner.linkedSystemUser = newName;
+          partner.linkedProfiles = String(partner.linkedProfiles || 'Not set').replaceAll(`System: ${previousName}`, `System: ${newName}`);
+        }
+      });
+    }
+
+    systemProfiles[newName] = draft;
+
+    const initial = newName[0].toUpperCase();
+    option.dataset.user = newName;
+    option.dataset.initial = initial;
+    option.dataset.color = draft.color;
+    applyPhotoStyle(option.querySelector('.avatar'), draft.profilePhoto || initial, initial, draft.color);
+    option.querySelector('span').textContent = newName;
+
+    systemProfileEditor.hidden = true;
+    editingSystemUser = null;
+    creatingSystemProfile = false;
+
+    renderSystemProfiles();
+    applyUserSelection(newName, initial, draft.color, option);
+  });
+}
+
+if (cancelSystemEditorBtn) {
+  cancelSystemEditorBtn.addEventListener('click', () => {
+    systemProfileEditor.hidden = true;
+    editingSystemUser = null;
+    creatingSystemProfile = false;
+  });
+}
+
+renderSystemProfiles();
+
+// =====================
+// Chat: Inner Chat between alters
+// =====================
+const chatAlterList = document.getElementById('chatAlterList');
+const chatConvoHeader = document.getElementById('chatConvoHeader');
+const chatMessages = document.getElementById('chatMessages');
+const chatInputBar = document.getElementById('chatInputBar');
+const chatInput = document.getElementById('chatInput');
+const sendMsg = document.getElementById('sendMsg');
+const chatPollBtn = document.getElementById('chatPollBtn');
+
+// Structure: { userName: { alterKey: [ {from:'me'|'alter', text, time} ] } }
+const chatMessagesByUser = {};
+let selectedChatAlterKey = null;
+
+function ensureChatStore(userName, alterKey) {
+  if (!chatMessagesByUser[userName]) chatMessagesByUser[userName] = {};
+  if (!chatMessagesByUser[userName][alterKey]) chatMessagesByUser[userName][alterKey] = [];
+  return chatMessagesByUser[userName][alterKey];
+}
+
+function getChatThread(alterKey) {
+  const user = getActiveUserName();
+  return ensureChatStore(user, alterKey);
+}
+
+function formatChatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function renderChatMessages() {
+  if (!chatMessages) return;
+  if (!selectedChatAlterKey) {
+    chatMessages.innerHTML = '';
+    return;
+  }
+
+  const thread = getChatThread(selectedChatAlterKey);
+  const activeProfiles = getActiveHeadmateProfiles();
+  const alter = activeProfiles[selectedChatAlterKey];
+  const alterColor = alter?.color || '#6c63ff';
+  const alterName = alter?.name || 'Alter';
+  const activeUser = getActiveUserName();
+  const selfProfile = systemProfiles[activeUser] || {};
+  const selfName = selfProfile.name || activeUser;
+  const selfColor = selfProfile.color || '#5865f2';
+  const selfPhoto = selfProfile.profilePhoto || selfName[0]?.toUpperCase() || 'U';
+
+  if (!thread.length) {
+    chatMessages.innerHTML = `<div class="chat-no-messages">No messages yet. Say something!</div>`;
+    return;
+  }
+
+  chatMessages.innerHTML = thread.map((msg) => {
+    const isSelf = msg.from === 'me';
+    const authorName = isSelf ? selfName : alterName;
+    const avatarMarkup = renderAvatarMarkup(
+      isSelf ? selfPhoto : (alter?.profilePhoto || alterName[0] || '?'),
+      authorName[0] || '?',
+      isSelf ? selfColor : alterColor,
+      'sm'
+    );
+
+    if (msg.type === 'poll') {
+      const voterKey = loggedInAccountKey || `user:${activeUser}`;
+      const selectedOption = msg.votesByUser?.[voterKey] || '';
+      const options = Array.isArray(msg.options) ? msg.options : [];
+      const totalVotes = options.reduce((sum, option) => sum + Number(option.votes || 0), 0);
+
+      return `<div class="msg ${isSelf ? 'sent' : 'received'}" data-message-id="${escapeHtml(msg.id || '')}">
+        ${avatarMarkup}
+        <div class="msg-body">
+          <div class="msg-author-row"><strong>${escapeHtml(authorName)}</strong><span class="msg-time-inline">${formatChatTime(msg.ts)}</span></div>
+          <div class="bubble poll-bubble">
+            <div class="chat-poll-card" data-poll-message="${escapeHtml(msg.id || '')}">
+              <p class="chat-poll-label">Poll</p>
+              <div class="chat-poll-question">${renderMarkdown(msg.question || 'Untitled poll')}</div>
+              <div class="chat-poll-options">
+                ${options.map((option) => `
+                  <button class="poll-option ${selectedOption === option.id ? 'active' : ''}" type="button" data-poll-message="${escapeHtml(msg.id || '')}" data-poll-option="${escapeHtml(option.id || '')}">
+                    <span>${escapeHtml(option.label || 'Option')}</span>
+                    <strong>${Number(option.votes || 0)}</strong>
+                  </button>
+                `).join('')}
+              </div>
+              <div class="chat-poll-total">${totalVotes} vote${totalVotes === 1 ? '' : 's'}</div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    return `<div class="msg ${isSelf ? 'sent' : 'received'}" data-message-id="${escapeHtml(msg.id || '')}">
+      ${avatarMarkup}
+      <div class="msg-body">
+        <div class="msg-author-row"><strong>${escapeHtml(authorName)}</strong><span class="msg-time-inline">${formatChatTime(msg.ts)}</span></div>
+        <div class="bubble">${renderMarkdown(msg.text || '')}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function openChatWith(alterKey) {
+  const activeProfiles = getActiveHeadmateProfiles();
+  const alter = activeProfiles[alterKey];
+  if (!alter) return;
+
+  selectedChatAlterKey = alterKey;
+
+  document.querySelectorAll('#chatAlterList .chat-item').forEach((li) => {
+    li.classList.toggle('active', li.dataset.alterKey === alterKey);
+  });
+
+  const color = alter.color || '#6c63ff';
+  chatConvoHeader.innerHTML = `
+    ${renderAvatarMarkup(alter.profilePhoto || alter.name[0]?.toUpperCase() || '?', alter.name[0]?.toUpperCase() || '?', color)}
+    <div class="chat-convo-header-info">
+      <strong>${escapeHtml(alter.name)}</strong>
+      <span>${escapeHtml(alter.mainRole || alter.pronouns || 'Alter')} • Markdown + polls enabled</span>
+    </div>
+  `;
+
+  if (chatInputBar) chatInputBar.hidden = false;
+  renderChatMessages();
+}
+
+function renderChatSidebar() {
+  if (!chatAlterList) return;
+  const activeProfiles = getActiveHeadmateProfiles();
+  const entries = Object.entries(activeProfiles);
+
+  if (!entries.length) {
+    chatAlterList.innerHTML = '<li class="chat-empty-hint">No headmates for this user.</li>';
+    selectedChatAlterKey = null;
+    if (chatInputBar) chatInputBar.hidden = true;
+    chatConvoHeader.innerHTML = '<span class="chat-placeholder-text">No alters found. Add headmates first.</span>';
+    chatMessages.innerHTML = '';
+    return;
+  }
+
+  const user = getActiveUserName();
+  chatAlterList.innerHTML = entries.map(([key, alter]) => {
+    const color = alter.color || '#6c63ff';
+    const thread = (chatMessagesByUser[user]?.[key]) || [];
+    const lastMsg = thread.length ? thread[thread.length - 1] : null;
+    const previewText = !lastMsg
+      ? 'No messages yet'
+      : lastMsg.type === 'poll'
+        ? `📊 ${lastMsg.question || 'Poll'}`
+        : String(lastMsg.text || 'No message');
+    const preview = escapeHtml(previewText.slice(0, 38)) + (previewText.length > 38 ? '…' : '');
+    const isActive = selectedChatAlterKey === key;
+    return `<li class="chat-item${isActive ? ' active' : ''}" data-alter-key="${key}">
+      ${renderAvatarMarkup(alter.profilePhoto || alter.name[0]?.toUpperCase() || '?', alter.name[0]?.toUpperCase() || '?', color)}
+      <div class="chat-item-meta">
+        <strong>${escapeHtml(alter.name)}</strong>
+        <small>${preview}</small>
+      </div>
+    </li>`;
+  }).join('');
+
+  if (selectedChatAlterKey && !activeProfiles[selectedChatAlterKey]) {
+    selectedChatAlterKey = null;
+    if (chatInputBar) chatInputBar.hidden = true;
+    chatConvoHeader.innerHTML = '<span class="chat-placeholder-text">Select an alter to open a conversation.</span>';
+    chatMessages.innerHTML = '';
+  }
+}
+
+if (chatAlterList) {
+  chatAlterList.addEventListener('click', (e) => {
+    const li = e.target.closest('[data-alter-key]');
+    if (!li) return;
+    openChatWith(li.dataset.alterKey);
+  });
+}
+
+function sendChatMessage() {
+  if (!chatInput || !selectedChatAlterKey) return;
+  const text = chatInput.value.trim();
+  if (!text) return;
+  const thread = getChatThread(selectedChatAlterKey);
+  thread.push({
+    id: `msg-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    type: 'text',
+    from: 'me',
+    text,
+    ts: Date.now()
+  });
+  chatInput.value = '';
+  renderChatMessages();
+  renderChatSidebar();
+}
+
+function createChatPoll() {
+  if (!selectedChatAlterKey) {
+    safeAlert('Open a conversation first.');
+    return;
+  }
+
+  const question = safePrompt('Poll question:', 'What should we focus on next?');
+  if (!question || !question.trim()) return;
+
+  const rawOptions = safePrompt('Enter 2 or more options, separated by commas:', 'Rest, Journal, Gaming');
+  if (!rawOptions || !rawOptions.trim()) return;
+
+  const options = rawOptions
+    .split(',')
+    .map((option) => option.trim())
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((label, index) => ({ id: `opt-${index + 1}`, label, votes: 0 }));
+
+  if (options.length < 2) {
+    safeAlert('Please include at least two options for the poll.');
+    return;
+  }
+
+  const thread = getChatThread(selectedChatAlterKey);
+  thread.push({
+    id: `poll-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    type: 'poll',
+    from: 'me',
+    question: question.trim(),
+    options,
+    votesByUser: {},
+    ts: Date.now()
+  });
+
+  renderChatMessages();
+  renderChatSidebar();
+}
+
+function voteOnChatPoll(messageId, optionId) {
+  if (!selectedChatAlterKey || !messageId || !optionId) return;
+  const thread = getChatThread(selectedChatAlterKey);
+  const message = thread.find((entry) => entry.id === messageId && entry.type === 'poll');
+  if (!message || !Array.isArray(message.options)) return;
+
+  const voterKey = loggedInAccountKey || `user:${getActiveUserName()}`;
+  const previousOptionId = message.votesByUser?.[voterKey];
+  if (!message.votesByUser) message.votesByUser = {};
+
+  if (previousOptionId && previousOptionId !== optionId) {
+    const previousOption = message.options.find((option) => option.id === previousOptionId);
+    if (previousOption) previousOption.votes = Math.max(0, Number(previousOption.votes || 0) - 1);
+  }
+
+  if (previousOptionId === optionId) {
+    const sameOption = message.options.find((option) => option.id === optionId);
+    if (sameOption) sameOption.votes = Math.max(0, Number(sameOption.votes || 0) - 1);
+    delete message.votesByUser[voterKey];
+  } else {
+    const nextOption = message.options.find((option) => option.id === optionId);
+    if (!nextOption) return;
+    nextOption.votes = Number(nextOption.votes || 0) + 1;
+    message.votesByUser[voterKey] = optionId;
+  }
+
+  renderChatMessages();
+  renderChatSidebar();
+}
+
+if (sendMsg) sendMsg.addEventListener('click', sendChatMessage);
+if (chatPollBtn) chatPollBtn.addEventListener('click', createChatPoll);
+if (chatInput) {
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendChatMessage();
+  });
+}
+if (chatMessages) {
+  chatMessages.addEventListener('click', (event) => {
+    const pollButton = event.target.closest('[data-poll-message][data-poll-option]');
+    if (!pollButton) return;
+    voteOnChatPoll(pollButton.dataset.pollMessage, pollButton.dataset.pollOption);
+  });
+}
+
+// =====================
+// Partners: Global Profile Manager
+// =====================
+const partnersTableBody = document.getElementById('partnersTableBody');
+const partnerProfile = document.getElementById('partnerProfile');
+const partnerBanner = document.getElementById('partnerBanner');
+const partnerPhoto = document.getElementById('partnerPhoto');
+const partnerName = document.getElementById('partnerName');
+const partnerMeta = document.getElementById('partnerMeta');
+const partnerProfileGrid = document.getElementById('partnerProfileGrid');
+const addPartnerBtn = document.getElementById('addPartnerBtn');
+const addPartnerFromTemplateBtn = document.getElementById('addPartnerFromTemplateBtn');
+const editPartnerBtn = document.getElementById('editPartnerBtn');
+const linkPartnerAccountBtn = document.getElementById('linkPartnerAccountBtn');
+const linkPartnerAlterBtn = document.getElementById('linkPartnerAlterBtn');
+const linkPartnerProfileBtn = document.getElementById('linkPartnerProfileBtn');
+const addPartnerHeadmateBtn = document.getElementById('addPartnerHeadmateBtn');
+const savePartnerBtn = document.getElementById('savePartnerBtn');
+const deletePartnerBtn = document.getElementById('deletePartnerBtn');
+const partnerEditor = document.getElementById('partnerEditor');
+const partnerEditorFields = document.getElementById('partnerEditorFields');
+const partnerHeadmatesList = document.getElementById('partnerHeadmatesList');
+const partnersDiagramCanvas = document.getElementById('partnersDiagramCanvas');
+const partnersDiagramRefreshBtn = document.getElementById('partnersDiagramRefreshBtn');
+
+const partnerFieldSchema = [
+  { key: 'name', label: 'Name' },
+  { key: 'connections', label: 'Connections (comma separated)' },
+  { key: 'linkedSystemUser', label: 'Linked system account' },
+  { key: 'linkedAlters', label: 'Linked alters' },
+  { key: 'partnerHeadmates', label: 'Their headmates' },
+  { key: 'linkedProfiles', label: 'Linked profiles' },
+  { key: 'description', label: 'Description', type: 'textarea' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'customFields', label: 'Custom fields', type: 'textarea' },
+  { key: 'relationshipType', label: 'Relationship type' },
+  { key: 'profilePhoto', label: 'Profile photo' },
+  { key: 'banner', label: 'Banner' },
+  { key: 'color', label: 'Color' }
+];
+
+const partnerProfiles = {
+  alex: {
+    name: 'Alex',
+    connections: 'Rowan, Sky',
+    linkedAlters: 'Alex, Sky',
+    partnerHeadmates: 'Jun (Host), Mira (Protector)',
+    linkedProfiles: 'Headmate: Alex, Location: Front Room',
+    description: 'Central planner and emotional anchor.',
+    relationshipType: 'Nesting',
+    profilePhoto: 'A',
+    banner: 'Shared Orbit',
+    color: '#6c63ff'
+  },
+  rowan: {
+    name: 'Rowan',
+    connections: 'Alex',
+    linkedAlters: 'Rowan',
+    partnerHeadmates: 'Ember (Support)',
+    linkedProfiles: 'Headmate: Rowan, Subsystem: Shield Unit',
+    description: 'Stability-focused with strong boundary skills.',
+    relationshipType: 'Anchor',
+    profilePhoto: 'R',
+    banner: 'Steady Flame',
+    color: '#ff6584'
+  }
+};
+
+let selectedPartnerKey = null;
+let creatingPartner = false;
+
+function findPartnerKeyByLinkedSystemUser(userName) {
+  const normalized = normalizeLookupName(userName);
+  return Object.entries(partnerProfiles).find(([, profile]) => normalizeLookupName(profile.linkedSystemUser) === normalized)?.[0] || null;
+}
+
+function syncPartnerWithSystemUser(profile, userName) {
+  const systemProfile = systemProfiles[userName];
+  if (!profile || !systemProfile) return profile;
+  profile.linkedSystemUser = userName;
+  profile.relationshipType = profile.relationshipType && profile.relationshipType !== 'Not set' ? profile.relationshipType : 'System Partner';
+  if (!profile.description || profile.description === 'Not set') profile.description = systemProfile.description || 'Linked system account.';
+  if (!profile.profilePhoto || profile.profilePhoto === 'P') profile.profilePhoto = systemProfile.profilePhoto || profile.profilePhoto;
+  if (!profile.banner || profile.banner === `${profile.name} Banner`) profile.banner = systemProfile.banner || profile.banner;
+  if (!profile.color || profile.color === '#6c63ff') profile.color = systemProfile.color || profile.color;
+  profile.linkedProfiles = appendCommaLinkValue(profile.linkedProfiles, `System: ${userName}`);
+  return profile;
+}
+
+function upsertPartnerFromSystemUser(userName) {
+  const systemProfile = systemProfiles[userName];
+  if (!systemProfile) return null;
+
+  const existingKey = findPartnerKeyByLinkedSystemUser(userName) || findPartnerKeyByName(systemProfile.name);
+  if (existingKey && partnerProfiles[existingKey]) {
+    syncPartnerWithSystemUser(partnerProfiles[existingKey], userName);
+    return existingKey;
+  }
+
+  const baseKey = userName.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `partner-${Date.now()}`;
+  let key = baseKey;
+  let suffix = 2;
+  while (partnerProfiles[key]) {
+    key = `${baseKey}-${suffix}`;
+    suffix += 1;
+  }
+
+  partnerProfiles[key] = syncPartnerWithSystemUser(createDefaultPartnerProfile(systemProfile.name || userName), userName);
+  partnerProfiles[key].name = systemProfile.name || userName;
+  return key;
+}
+
+function createDefaultPartnerProfile(name) {
+  const initial = name[0]?.toUpperCase() || 'P';
+  return {
+    name,
+    connections: 'Not set',
+    linkedSystemUser: 'Not set',
+    linkedAlters: 'Not set',
+    partnerHeadmates: 'Not set',
+    linkedProfiles: 'Not set',
+    description: 'Not set',
+    tags: 'Not set',
+    customFields: 'Not set',
+    relationshipType: 'Romantic',
+    profilePhoto: initial,
+    banner: `${name} Banner`,
+    color: '#6c63ff'
+  };
+}
+
+function renderPartnerEditorFields(profile) {
+  if (!partnerEditorFields) return;
+  const fp = profile.fieldPrivacy || {};
+  partnerEditorFields.innerHTML = partnerFieldSchema.map((field) => {
+    const id = `partnerEdit_${field.key}`;
+    const safeValue = String(profile[field.key] ?? '');
+    const privSel = renderPrivacySelect(`priv_partnerEdit_${field.key}`, fp[field.key] || 'public');
+    const inputHtml = renderFieldInput(field, id, safeValue);
+    return `<div class="editor-field-row">${inputHtml}${privSel}</div>`;
+  }).join('');
+
+  bindColorPickers(partnerEditorFields);
+}
+
+function readPartnerEditorValues(baseProfile) {
+  const updated = { ...baseProfile };
+  partnerFieldSchema.forEach((field) => {
+    const input = document.getElementById(`partnerEdit_${field.key}`);
+    if (!input) return;
+    const value = (input.value || '').trim();
+    updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
+  });
+  updated.fieldPrivacy = readFieldPrivacy(partnerFieldSchema, 'partnerEdit', baseProfile);
+  return updated;
+}
+
+function renderPartnerProfile(profile) {
+  if (!partnerProfile || !partnerProfileGrid) return;
+  const partnerPhotoValue = profile.profilePhoto || 'P';
+  applyPhotoStyle(partnerPhoto, partnerPhotoValue, profile.name?.[0] || 'P', profile.color || '#6c63ff');
+  const linkedAlterCount = parseLinkedTextList(profile.linkedAlters).length;
+  const linkedUserRaw = String(profile.linkedSystemUser || '').trim();
+  const linkedUser = findSystemUserByName(linkedUserRaw || '');
+  const linkedUserValid = Boolean(linkedUser);
+  const accountHeadmateCount = linkedUserValid ? Object.keys(ensureHeadmateStoreForUser(linkedUser)).length : 0;
+  const partnerHeadmateCount = parsePartnerHeadmateEntries(profile).length + accountHeadmateCount;
+  partnerName.textContent = profile.name;
+  partnerMeta.textContent = `${profile.relationshipType || 'Unspecified'}${linkedUserValid ? ` • ${linkedUser}` : ''} • ${linkedAlterCount} linked alter${linkedAlterCount === 1 ? '' : 's'} • ${partnerHeadmateCount} ${getTermCountLabel('headmates', partnerHeadmateCount).toLowerCase()}`;
+  applyBannerStyle(partnerBanner, profile.banner, profile.color || '#6c63ff', '--headmate-color');
+
+  const fp2 = profile.fieldPrivacy || {};
+  const viewerLevel2 = getViewerTrustLevel();
+  const basePartnerFields = partnerFieldSchema
+    .filter((field) => field.key !== 'customFields' && canViewField(fp2[field.key] || 'public', viewerLevel2))
+    .map((field) => {
+      const value = renderProfileFieldValue('partner', field, profile);
+      const badge = privacyBadge(fp2[field.key]);
+      return `<article class="headmate-field"><span class="headmate-field-label">${escapeHtml(field.label)}${badge}</span><div class="headmate-field-value">${value}</div></article>`;
+    });
+  const partnerCustomFields = canViewField(fp2.customFields || 'public', viewerLevel2)
+    ? renderCustomFieldArticles(profile, fp2.customFields || 'public')
+    : [];
+  partnerProfileGrid.innerHTML = basePartnerFields.concat(partnerCustomFields).join('');
+
+  renderPartnerHeadmates(profile);
+  partnerProfile.hidden = false;
+}
+
+function parsePartnerList(profile) {
+  return String(profile.connections || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean)
+    .filter((name) => name.toLowerCase() !== 'not set');
+}
+
+function parsePartnerHeadmateEntries(profile) {
+  return parseLinkedTextList(profile?.partnerHeadmates).map((entry) => {
+    const match = entry.match(/^(.+?)\s*\((.+)\)$/);
+    return match
+      ? { raw: entry, name: match[1].trim(), role: match[2].trim() }
+      : { raw: entry, name: entry.trim(), role: 'Headmate' };
+  });
+}
+
+function renderPartnerHeadmates(profile) {
+  if (!partnerHeadmatesList) return;
+  const entries = parsePartnerHeadmateEntries(profile);
+  const linkedUser = findSystemUserByName(String(profile.linkedSystemUser || '').trim());
+  const linkedUserValid = Boolean(linkedUser);
+  const accountHeadmates = linkedUserValid
+    ? Object.entries(ensureHeadmateStoreForUser(linkedUser)).map(([key, headmate]) => ({ key, headmate }))
+    : [];
+
+  if (!entries.length && !accountHeadmates.length) {
+    partnerHeadmatesList.innerHTML = `<p class="headmate-hint" style="margin:8px 0">No partner ${escapeHtml(getTermLabel('headmates').toLowerCase())} added yet.</p>`;
+    return;
+  }
+
+  const linkedAccountMarkup = linkedUserValid
+    ? `
+      <div class="subsystem-hub-member">
+        ${renderAvatarMarkup(systemProfiles[linkedUser]?.profilePhoto || linkedUser[0]?.toUpperCase() || 'A', linkedUser[0]?.toUpperCase() || 'A', systemProfiles[linkedUser]?.color || profile.color || '#6c63ff', 'sm')}
+        <div class="subsystem-hub-member-info">
+          <strong>${escapeHtml(linkedUser)}</strong>
+          <span>Showing logged headmates from this account</span>
+        </div>
+      </div>
+    `
+    : '';
+
+  const accountHeadmateMarkup = accountHeadmates.map(({ key, headmate }) => {
+    return `
+      <div class="subsystem-hub-member" data-partner-account-user="${escapeHtml(linkedUser)}" data-partner-account-headmate="${key}" title="Open full profile">
+        ${renderAvatarMarkup(headmate.profilePhoto || headmate.name?.[0]?.toUpperCase() || 'H', headmate.name?.[0]?.toUpperCase() || 'H', headmate.color || '#6c63ff', 'sm')}
+        <div class="subsystem-hub-member-info">
+          <strong>${escapeHtml(headmate.name || key)}</strong>
+          <span>${escapeHtml(headmate.mainRole || headmate.pronouns || 'Headmate')} • Open full profile</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const customHeadmateMarkup = entries.map((entry) => {
+    const initial = entry.name[0]?.toUpperCase() || 'H';
+    return `
+      <div class="subsystem-hub-member" data-partner-headmate="${escapeHtml(entry.name)}" title="Open full profile if one exists">
+        <div class="headmate-photo sm" style="background:${profile.color || '#6c63ff'}">${escapeHtml(initial)}</div>
+        <div class="subsystem-hub-member-info">
+          <strong>${escapeHtml(entry.name)}</strong>
+          <span>${escapeHtml(entry.role || 'Headmate')} • Open full profile</span>
+        </div>
+        <button class="btn-sm subsystem-unlink-btn" type="button" data-remove-partner-headmate="${escapeHtml(entry.raw)}" title="Remove">&#10005;</button>
+      </div>
+    `;
+  }).join('');
+
+  partnerHeadmatesList.innerHTML = `${linkedAccountMarkup}${accountHeadmateMarkup}${customHeadmateMarkup}`;
+}
+
+function openPartnerHeadmateProfile(profile, headmateNameOrKey, userNameHint = '') {
+  if (!profile || !headmateNameOrKey) return;
+
+  const linkedUser = findSystemUserByName(userNameHint || String(profile.linkedSystemUser || '').trim());
+  let targetUser = linkedUser;
+  let headmateKey = null;
+
+  if (linkedUser) {
+    const linkedProfiles = ensureHeadmateStoreForUser(linkedUser);
+    headmateKey = linkedProfiles[headmateNameOrKey]
+      ? headmateNameOrKey
+      : Object.entries(linkedProfiles).find(([key, headmate]) => (
+        normalizeLookupName(key) === normalizeLookupName(headmateNameOrKey)
+        || normalizeLookupName(headmate.name) === normalizeLookupName(headmateNameOrKey)
+      ))?.[0] || null;
+  }
+
+  if (!headmateKey) {
+    targetUser = getActiveUserName();
+    headmateKey = findHeadmateKeyByName(headmateNameOrKey);
+  }
+
+  if (!headmateKey) {
+    safeAlert('No full headmate profile was found for that entry yet.');
+    return;
+  }
+
+  const userOption = Array.from(document.querySelectorAll('.user-option[data-user]')).find((opt) => opt.dataset.user === targetUser);
+  if (userOption && currentUsername.textContent !== targetUser) {
+    applyUserSelection(userOption.dataset.user, userOption.dataset.initial, userOption.dataset.color, userOption);
+  }
+
+  openProfileFromLink('parts', headmateKey);
+}
+
+function renderPartnersDiagram() {
+  if (!partnersDiagramCanvas) return;
+
+  const entries = Object.entries(partnerProfiles);
+  if (!entries.length) {
+    partnersDiagramCanvas.innerHTML = '<div class="headmate-hint" style="padding:14px">Add partners to generate the diagram.</div>';
+    return;
+  }
+
+  const width = Math.max(680, partnersDiagramCanvas.clientWidth || 680);
+  const height = 380;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.max(110, Math.min(width, height) * 0.32);
+  const selfNode = {
+    key: '__self__',
+    name: 'Self',
+    x: centerX,
+    y: centerY
+  };
+
+  const nodes = entries.map(([key, profile], index) => {
+    const angle = (Math.PI * 2 * index) / entries.length - Math.PI / 2;
+    return {
+      key,
+      name: profile.name,
+      type: profile.relationshipType || 'Unspecified',
+      x: centerX + Math.cos(angle) * radius,
+      y: centerY + Math.sin(angle) * radius
+    };
+  });
+
+  const byName = new Map(nodes.map((node) => [node.name.toLowerCase(), node]));
+  const edges = [];
+  const edgeSeen = new Set();
+
+  // Always connect each partner to the central self node.
+  nodes.forEach((node) => {
+    edges.push({
+      from: selfNode,
+      to: node,
+      label: node.type || 'Partner'
+    });
+  });
+
+  entries.forEach(([key, profile]) => {
+    const from = nodes.find((node) => node.key === key);
+    if (!from) return;
+    parsePartnerList(profile).forEach((partnerName) => {
+      const to = byName.get(partnerName.toLowerCase());
+      if (!to || to.key === from.key) return;
+      const edgeKey = [from.key, to.key].sort().join('|');
+      if (edgeSeen.has(edgeKey)) return;
+      edgeSeen.add(edgeKey);
+      edges.push({ from, to, label: profile.relationshipType || 'Link' });
+    });
+  });
+
+  const edgeSvg = edges.map((edge) => {
+    const mx = (edge.from.x + edge.to.x) / 2;
+    const my = (edge.from.y + edge.to.y) / 2;
+    return `
+      <line class="partners-edge" x1="${edge.from.x}" y1="${edge.from.y}" x2="${edge.to.x}" y2="${edge.to.y}" />
+      <text class="partners-edge-label" x="${mx}" y="${my - 4}">${escapeHtml(edge.label)}</text>
+    `;
+  }).join('');
+
+  const nodeSvg = nodes.map((node) => {
+    const initials = node.name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() || '')
+      .join('') || 'P';
+    return `
+      <g data-diagram-partner="${node.key}">
+        <circle class="partners-node ${selectedPartnerKey === node.key ? 'selected' : ''}" cx="${node.x}" cy="${node.y}" r="28" />
+        <text class="partners-node-label" x="${node.x}" y="${node.y + 4}">${escapeHtml(initials)}</text>
+        <text class="partners-node-label" x="${node.x}" y="${node.y + 46}">${escapeHtml(node.name)}</text>
+      </g>
+    `;
+  }).join('');
+
+  const selfNodeSvg = `
+    <g data-diagram-self="true">
+      <circle class="partners-node self" cx="${selfNode.x}" cy="${selfNode.y}" r="34" />
+      <text class="partners-node-label" x="${selfNode.x}" y="${selfNode.y + 4}">SELF</text>
+    </g>
+  `;
+
+  partnersDiagramCanvas.innerHTML = `<svg class="partners-diagram-svg" viewBox="0 0 ${width} ${height}">${edgeSvg}${selfNodeSvg}${nodeSvg}</svg>`;
+
+  partnersDiagramCanvas.querySelectorAll('[data-diagram-partner]').forEach((group) => {
+    group.addEventListener('click', () => {
+      const key = group.getAttribute('data-diagram-partner');
+      const row = document.querySelector(`#partnersTableBody tr[data-partner="${key}"]`);
+      if (row) row.click();
+    });
+  });
+}
+
+function renderPartnersTable() {
+  if (!partnersTableBody) return;
+  const entries = Object.entries(partnerProfiles);
+  partnersTableBody.innerHTML = entries.length
+    ? entries.map(([key, profile], index) => `
+      <tr data-partner="${key}" class="${selectedPartnerKey === key ? 'selected' : ''}">
+        <td>#${String(index + 1).padStart(3, '0')}</td>
+        <td>${escapeHtml(profile.name)}</td>
+        <td>${escapeHtml(profile.relationshipType || 'Not set')}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="3">No partners yet.</td></tr>';
+
+  if (selectedPartnerKey && partnerProfiles[selectedPartnerKey]) {
+    renderPartnerProfile(partnerProfiles[selectedPartnerKey]);
+  } else {
+    if (partnerProfile) partnerProfile.hidden = true;
+    if (partnerEditor) partnerEditor.hidden = true;
+    if (savePartnerBtn) savePartnerBtn.disabled = true;
+  }
+
+  renderPartnersDiagram();
+}
+
+if (partnersTableBody) {
+  partnersTableBody.addEventListener('click', (event) => {
+    const row = event.target.closest('tr[data-partner]');
+    if (!row) return;
+    const key = row.dataset.partner;
+    const profile = partnerProfiles[key];
+    if (!profile) return;
+
+    document.querySelectorAll('#partnersTableBody tr[data-partner]').forEach((r) => r.classList.remove('selected'));
+    row.classList.add('selected');
+    selectedPartnerKey = key;
+    creatingPartner = false;
+    if (savePartnerBtn) savePartnerBtn.disabled = true;
+    if (partnerEditor) partnerEditor.hidden = true;
+    renderPartnerProfile(profile);
+  });
+}
+
+if (addPartnerBtn) {
+  addPartnerBtn.addEventListener('click', () => {
+    creatingPartner = true;
+    selectedPartnerKey = null;
+    const defaultName = `Partner ${Object.keys(partnerProfiles).length + 1}`;
+    const seed = createDefaultPartnerProfile(defaultName);
+    renderPartnerProfile(seed);
+    renderPartnerEditorFields(seed);
+    if (savePartnerBtn) savePartnerBtn.disabled = false;
+    if (partnerEditor) {
+      partnerEditor.hidden = false;
+      partnerEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (addPartnerFromTemplateBtn) {
+  addPartnerFromTemplateBtn.addEventListener('click', () => {
+    const template = pickTemplateForTarget('partner');
+    if (!template) return;
+    creatingPartner = true;
+    selectedPartnerKey = null;
+    const baseName = (template.name || '').trim() || `Partner ${Object.keys(partnerProfiles).length + 1}`;
+    const seed = {
+      ...createDefaultPartnerProfile(baseName),
+      name: baseName,
+      relationshipType: template.category || 'Partner',
+      description: template.description || 'Not set',
+      banner: template.banner || `${baseName} Banner`,
+      color: template.color || '#6c63ff'
+    };
+    renderPartnerProfile(seed);
+    renderPartnerEditorFields(seed);
+    if (savePartnerBtn) savePartnerBtn.disabled = false;
+    if (partnerEditor) {
+      partnerEditor.hidden = false;
+      partnerEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (editPartnerBtn) {
+  editPartnerBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    creatingPartner = false;
+    renderPartnerEditorFields(partnerProfiles[selectedPartnerKey]);
+    if (savePartnerBtn) savePartnerBtn.disabled = false;
+    if (partnerEditor) {
+      partnerEditor.hidden = false;
+      partnerEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (linkPartnerAlterBtn) {
+  linkPartnerAlterBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    const partner = partnerProfiles[selectedPartnerKey];
+    const headmateNames = Object.values(getActiveHeadmateProfiles()).map((profile) => profile.name);
+    if (!headmateNames.length) {
+      safeAlert('Add a headmate first so there is something to link.');
+      return;
+    }
+    const rawName = safePrompt(`Enter the alter name to link to ${partner.name}. Available: ${headmateNames.join(', ')}`, headmateNames[0]);
+    if (!rawName || !rawName.trim()) return;
+    const key = findHeadmateKeyByName(rawName);
+    if (!key) {
+      safeAlert('No matching headmate was found.');
+      return;
+    }
+    const headmate = getActiveHeadmateProfiles()[key];
+    partner.linkedAlters = appendCommaLinkValue(partner.linkedAlters, headmate.name);
+    headmate.partners = appendCommaLinkValue(headmate.partners, partner.name);
+    renderPartnersTable();
+    renderPartnerProfile(partner);
+    renderHeadmatesTable();
+    if (selectedHeadmateKey === key) renderHeadmateProfile(headmate);
+  });
+}
+
+if (linkPartnerProfileBtn) {
+  linkPartnerProfileBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    const partner = partnerProfiles[selectedPartnerKey];
+    if (addProfileLinkToRecord(partner, 'Headmate')) {
+      renderPartnersTable();
+      renderPartnerProfile(partner);
+    }
+  });
+}
+
+if (linkPartnerAccountBtn) {
+  linkPartnerAccountBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    const userNames = Object.keys(systemProfiles);
+    if (!userNames.length) {
+      safeAlert('No system accounts are available yet.');
+      return;
+    }
+    const rawName = safePrompt(`Enter the account name to set as this partner. Available: ${userNames.join(', ')}`, userNames[0]);
+    if (!rawName || !rawName.trim()) return;
+    const userName = findSystemUserByName(rawName);
+    if (!userName) {
+      safeAlert('No matching account was found.');
+      return;
+    }
+    const partner = partnerProfiles[selectedPartnerKey];
+    syncPartnerWithSystemUser(partner, userName);
+    renderPartnersTable();
+    renderPartnerProfile(partner);
+  });
+}
+
+if (addPartnerHeadmateBtn) {
+  addPartnerHeadmateBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    const raw = safePrompt(`Add one of ${partnerProfiles[selectedPartnerKey].name}'s headmates as Name|Role`, 'Jun|Host');
+    if (!raw || !raw.trim()) return;
+    const [rawName, rawRole] = raw.split('|').map((part) => (part || '').trim());
+    if (!rawName) {
+      safeAlert('A name is required.');
+      return;
+    }
+    const entry = rawRole ? `${rawName} (${rawRole})` : rawName;
+    const partner = partnerProfiles[selectedPartnerKey];
+    partner.partnerHeadmates = appendCommaLinkValue(partner.partnerHeadmates, entry);
+    renderPartnersTable();
+    renderPartnerProfile(partner);
+  });
+}
+
+if (partnerHeadmatesList) {
+  partnerHeadmatesList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove-partner-headmate]');
+    if (button && selectedPartnerKey && partnerProfiles[selectedPartnerKey]) {
+      const rawValue = button.dataset.removePartnerHeadmate;
+      const partner = partnerProfiles[selectedPartnerKey];
+      const remaining = parseLinkedTextList(partner.partnerHeadmates).filter((item) => normalizeLookupName(item) !== normalizeLookupName(rawValue));
+      partner.partnerHeadmates = remaining.length ? remaining.join(', ') : 'Not set';
+      renderPartnerProfile(partner);
+      return;
+    }
+
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) return;
+    const partner = partnerProfiles[selectedPartnerKey];
+
+    const linkedHeadmateCard = event.target.closest('[data-partner-account-user][data-partner-account-headmate]');
+    if (linkedHeadmateCard) {
+      openPartnerHeadmateProfile(
+        partner,
+        linkedHeadmateCard.dataset.partnerAccountHeadmate || '',
+        linkedHeadmateCard.dataset.partnerAccountUser || ''
+      );
+      return;
+    }
+
+    const customHeadmateCard = event.target.closest('[data-partner-headmate]');
+    if (customHeadmateCard) {
+      openPartnerHeadmateProfile(partner, customHeadmateCard.dataset.partnerHeadmate || '');
+    }
+  });
+}
+
+if (savePartnerBtn) {
+  savePartnerBtn.addEventListener('click', () => {
+    const base = creatingPartner ? createDefaultPartnerProfile('Partner') : partnerProfiles[selectedPartnerKey];
+    if (!base) return;
+    const updated = readPartnerEditorValues(base);
+    const name = (updated.name || '').trim();
+    if (!name) {
+      safeAlert('Name is required.');
+      return;
+    }
+
+    if (creatingPartner) {
+      const baseKey = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `partner-${Date.now()}`;
+      let key = baseKey;
+      let suffix = 2;
+      while (partnerProfiles[key]) {
+        key = `${baseKey}-${suffix}`;
+        suffix += 1;
+      }
+      partnerProfiles[key] = updated;
+      selectedPartnerKey = key;
+      creatingPartner = false;
+    } else {
+      partnerProfiles[selectedPartnerKey] = updated;
+    }
+
+    if (partnerEditor) partnerEditor.hidden = true;
+    savePartnerBtn.disabled = true;
+    renderPartnersTable();
+  });
+}
+
+if (deletePartnerBtn) {
+  deletePartnerBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    if (!safeConfirm(`Delete partner ${partnerProfiles[selectedPartnerKey].name}?`)) return;
+    delete partnerProfiles[selectedPartnerKey];
+    selectedPartnerKey = null;
+    creatingPartner = false;
+    if (partnerEditor) partnerEditor.hidden = true;
+    if (partnerProfile) partnerProfile.hidden = true;
+    if (savePartnerBtn) savePartnerBtn.disabled = true;
+    renderPartnersTable();
+  });
+}
+
+renderPartnersTable();
+
+if (partnersDiagramRefreshBtn) {
+  partnersDiagramRefreshBtn.addEventListener('click', renderPartnersDiagram);
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('page-friends')?.classList.contains('active')) {
+    renderPartnersDiagram();
+  }
+  if (document.getElementById('page-notifications')?.classList.contains('active')) {
+    renderLocationMap(selectedLocationKey);
+  }
+});
+
+// =====================
+// Headmates: Expand Profile
+// =====================
+const defaultHeadmateProfiles = {
+  alex: {
+    profilePhoto: 'A',
+    banner: 'Prismatic Dawn',
+    color: '#6c63ff',
+    interactionStatus: 'Open to interaction',
+    twsCws: 'Loud argument audio, medical themes',
+    byi: 'Prefers explicit context and gentle pacing before heavy topics.',
+    dni: 'Hostility, invalidation, sarcasm as default tone.',
+    name: 'Alex',
+    nickname: 'Lex',
+    alias: 'Node-1',
+    petnames: 'Starling, Captain',
+    pronouns: 'they/them',
+    gender: 'Nonbinary',
+    orientation: 'Queer',
+    amory: 'Polyamorous',
+    partnershipStatus: 'Partnered',
+    partners: 'Rowan, Jun',
+    searching: 'Not currently',
+    verbality: 'Verbal',
+    aacUsage: 'Occasional text AAC during overload',
+    toneTagUsage: 'Uses tone tags regularly',
+    age: '27',
+    ageType: 'Adult',
+    birthdayRelative: 'Early spring',
+    species: 'Human',
+    regressor: false,
+    regressionNotes: 'N/A',
+    caregiver: true,
+    caregiverNotes: 'Co-regulates younger parts in evening routine.',
+    mainRole: 'Coordinator',
+    folder: 'Front Crew',
+    subfolder: 'Coordinators',
+    otherRoles: 'Archivist, scheduler',
+    partType: 'Core-adjacent',
+    triggersPositive: 'Rain ambience, mint tea, low piano',
+    triggersNeutral: 'Crowded spaces, unknown numbers',
+    triggersNegative: 'Shouting, abrupt conflict escalation',
+    systemGroups: 'Planning team, front support',
+    sidesystem: 'North Wing',
+    subsystem: 'Ops Cluster',
+    formationDate: 'Approx. 2016',
+    formationReason: 'Needed continuity during high-demand periods.',
+    formationNotes: 'Gradual consolidation over several months.',
+    sourceDetails: 'No fictional source',
+    sexual: true,
+    boundariesHard: 'Coercion, humiliation, explicit violence',
+    boundariesSoft: 'Public affection; ask first',
+    boundariesGreen: 'Verbal reassurance, hand squeezes, planned check-ins'
+  },
+  rowan: {
+    profilePhoto: 'R',
+    banner: 'Guardian Arc',
+    color: '#ff6584',
+    interactionStatus: 'Limited interaction',
+    twsCws: 'Mentions of confinement and authority abuse',
+    byi: 'Direct communicator; appreciates concise asks.',
+    dni: 'Boundary pushing and testing limits for fun.',
+    name: 'Rowan',
+    nickname: 'Ro',
+    alias: 'Aegis',
+    petnames: 'Sentinel',
+    pronouns: 'he/they',
+    gender: 'Transmasc',
+    orientation: 'Biromantic',
+    amory: 'Ambiamorous',
+    partnershipStatus: 'Single',
+    partners: 'None',
+    searching: 'Maybe, with trust established',
+    verbality: 'Selective verbal',
+    aacUsage: 'Primary typed AAC on low-energy days',
+    toneTagUsage: 'Uses when context is unclear',
+    age: '31',
+    ageType: 'Adult',
+    birthdayRelative: 'Late autumn',
+    species: 'Human',
+    regressor: false,
+    regressionNotes: 'N/A',
+    caregiver: true,
+    caregiverNotes: 'Safety planning and de-escalation lead.',
+    mainRole: 'Protector',
+    folder: 'Front Crew',
+    subfolder: 'Protectors',
+    otherRoles: 'Boundary keeper, logistics',
+    partType: 'Protector',
+    triggersPositive: 'Weight blanket, instrumental metal',
+    triggersNeutral: 'Unexpected schedule changes',
+    triggersNegative: 'Cornering, threats, manipulative language',
+    systemGroups: 'Protection team',
+    sidesystem: 'Outer Ring',
+    subsystem: 'Shield Unit',
+    formationDate: 'Approx. 2014',
+    formationReason: 'Response to recurring safety breaches.',
+    formationNotes: 'Sudden appearance during crisis period.',
+    sourceDetails: 'No fictional source',
+    sexual: false,
+    boundariesHard: 'Sexual pressure, physical restraint references',
+    boundariesSoft: 'Personal questions early on',
+    boundariesGreen: 'Practical checklists, explicit consent language'
+  },
+  kai: {
+    profilePhoto: 'K',
+    banner: 'Static Bloom',
+    color: '#43d9ad',
+    interactionStatus: 'Do not disturb',
+    twsCws: 'Substance misuse, abandonment themes',
+    byi: 'Can be quiet; silence is usually regulation, not disinterest.',
+    dni: 'Mocking mental health symptoms.',
+    name: 'Kai',
+    nickname: 'K',
+    alias: 'Waveform',
+    petnames: 'Sprout',
+    pronouns: 'they/he',
+    gender: 'Agender',
+    orientation: 'Aroace spectrum',
+    amory: 'Not seeking romantic structures',
+    partnershipStatus: 'Unpartnered',
+    partners: 'None',
+    searching: 'No',
+    verbality: 'Semi-verbal',
+    aacUsage: 'High AAC usage (symbols + text)',
+    toneTagUsage: 'Strong preference for tone tags',
+    age: '19',
+    ageType: 'Young adult',
+    birthdayRelative: 'Mid-winter',
+    species: 'Human',
+    regressor: true,
+    regressionNotes: 'Comforted by plushies and simple routines when regressed.',
+    caregiver: false,
+    caregiverNotes: 'N/A',
+    mainRole: 'Sensory monitor',
+    folder: 'Inner Garden',
+    subfolder: 'Wellbeing',
+    otherRoles: 'Creative processing',
+    partType: 'Trauma holder',
+    triggersPositive: 'Soft textures, repetitive crafting',
+    triggersNeutral: 'Bright fluorescent lighting',
+    triggersNegative: 'Substance references, abandonment threats',
+    systemGroups: 'Wellbeing pod',
+    sidesystem: 'Inner Garden',
+    subsystem: 'Care Cluster',
+    formationDate: 'Approx. 2019',
+    formationReason: 'Needed dedicated sensory and emotional containment.',
+    formationNotes: 'Developed from recurring dissociative episodes.',
+    sourceDetails: 'No fictional source',
+    sexual: false,
+    boundariesHard: 'Sexual content directed at them',
+    boundariesSoft: 'Unexpected voice calls',
+    boundariesGreen: 'Text-first check-ins, clear topic labels'
+  },
+  sky: {
+    profilePhoto: 'S',
+    banner: 'Warm Signal',
+    color: '#f5a623',
+    interactionStatus: 'Open to interaction',
+    twsCws: 'Hospital imagery, grief-heavy narratives',
+    byi: 'Highly social and uses humor to connect.',
+    dni: 'Cruel teasing and public callouts.',
+    name: 'Sky',
+    nickname: 'Skye',
+    alias: 'Lumen',
+    petnames: 'Sunbeam',
+    pronouns: 'she/they',
+    gender: 'Genderfluid',
+    orientation: 'Pansexual',
+    amory: 'Poly-curious',
+    partnershipStatus: 'Talking stage',
+    partners: 'Mira (potential)',
+    searching: 'Yes',
+    verbality: 'Very verbal',
+    aacUsage: 'Rare',
+    toneTagUsage: 'Optional but willing',
+    age: '24',
+    ageType: 'Adult',
+    birthdayRelative: 'High summer',
+    species: 'Human',
+    regressor: true,
+    regressionNotes: 'Enjoys cartoons and guided breathing games.',
+    caregiver: true,
+    caregiverNotes: 'Can co-caregive with Alex during group regulation.',
+    mainRole: 'Social connector',
+    folder: 'Social Wing',
+    subfolder: 'Outreach',
+    otherRoles: 'Community outreach, morale',
+    partType: 'Support',
+    triggersPositive: 'Pop playlists, voice notes from trusted people',
+    triggersNeutral: 'Sudden silence in chats',
+    triggersNegative: 'Shaming language, invalidation',
+    systemGroups: 'Social crew, front team',
+    sidesystem: 'South Wing',
+    subsystem: 'Bridge Team',
+    formationDate: 'Approx. 2018',
+    formationReason: 'Built to restore connection and interpersonal warmth.',
+    formationNotes: 'Appeared gradually with increased external support.',
+    sourceDetails: 'No fictional source',
+    sexual: true,
+    boundariesHard: 'Derogatory sexual comments',
+    boundariesSoft: 'Flirting without prior cue',
+    boundariesGreen: 'Compliments, clear opt-in communication'
+  }
+};
+
+const headmateProfilesByUser = {
+  Alice: JSON.parse(JSON.stringify(defaultHeadmateProfiles))
+};
+const headmateFoldersByUser = {};
+const headmateProfilePanel = document.getElementById('headmateProfile');
+const headmateProfileGrid = document.getElementById('headmateProfileGrid');
+const headmateBanner = document.getElementById('headmateBanner');
+const headmatePhoto = document.getElementById('headmatePhoto');
+const headmateName = document.getElementById('headmateName');
+const headmateMeta = document.getElementById('headmateMeta');
+const headmatesTableBody = document.querySelector('#page-parts tbody');
+const headmatesSearchInput = document.getElementById('headmatesSearchInput');
+const headmateFolderFilter = document.getElementById('headmateFolderFilter');
+const headmateSubfolderFilter = document.getElementById('headmateSubfolderFilter');
+const manageHeadmateFoldersBtn = document.getElementById('manageHeadmateFoldersBtn');
+const headmateFolderTree = document.getElementById('headmateFolderTree');
+const headmateFolderOptions = document.getElementById('headmateFolderOptions');
+const headmateSubfolderOptions = document.getElementById('headmateSubfolderOptions');
+const bulkAddHeadmatesBtn = document.getElementById('bulkAddHeadmatesBtn');
+const addHeadmateBtn = document.getElementById('addHeadmateBtn');
+const addHeadmateFromTemplateBtn = document.getElementById('addHeadmateFromTemplateBtn');
+const editHeadmateBtn = document.getElementById('editHeadmateBtn');
+const linkHeadmateSubsystemBtn = document.getElementById('linkHeadmateSubsystemBtn');
+const linkHeadmateProfileBtn = document.getElementById('linkHeadmateProfileBtn');
+const saveHeadmateBtn = document.getElementById('saveHeadmateBtn');
+const deleteHeadmateBtn = document.getElementById('deleteHeadmateBtn');
+const headmateEditor = document.getElementById('headmateEditor');
+const headmateEditorFields = document.getElementById('headmateEditorFields');
+let selectedHeadmateKey = null;
+let pendingHeadmateDraft = null;
+let creatingHeadmate = false;
+
+const headmateFieldSchema = [
+  { key: 'profilePhoto', label: 'Profile photo' },
+  { key: 'banner', label: 'Banner' },
+  { key: 'color', label: 'Color' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'customFields', label: 'Custom fields', type: 'textarea' },
+  { key: 'interactionStatus', label: 'Interaction status' },
+  { key: 'twsCws', label: 'TWs/CWs', type: 'textarea' },
+  { key: 'byi', label: 'BYI', type: 'textarea' },
+  { key: 'dni', label: 'DNI', type: 'textarea' },
+  { key: 'name', label: 'Name' },
+  { key: 'nickname', label: 'Nickname' },
+  { key: 'alias', label: 'Alias' },
+  { key: 'petnames', label: 'Petnames' },
+  { key: 'pronouns', label: 'Pronouns' },
+  { key: 'gender', label: 'Gender' },
+  { key: 'orientation', label: 'Orientation' },
+  { key: 'amory', label: 'Amory' },
+  { key: 'partnershipStatus', label: 'Partnership status' },
+  { key: 'partners', label: 'Partner(s)' },
+  { key: 'searching', label: 'Searching?' },
+  { key: 'verbality', label: 'Verbality' },
+  { key: 'aacUsage', label: 'AAC usage' },
+  { key: 'toneTagUsage', label: 'Tone tag usage' },
+  { key: 'age', label: 'Age' },
+  { key: 'ageType', label: 'Age type' },
+  { key: 'birthdayRelative', label: 'Birthday (relative)' },
+  { key: 'species', label: 'Species' },
+  { key: 'regressor', label: 'Regressor?', type: 'boolean' },
+  { key: 'regressionNotes', label: 'Regression notes', type: 'textarea' },
+  { key: 'caregiver', label: 'Caregiver?', type: 'boolean' },
+  { key: 'caregiverNotes', label: 'Caregiver notes', type: 'textarea' },
+  { key: 'mainRole', label: 'Main role' },
+  { key: 'folder', label: 'Folder' },
+  { key: 'subfolder', label: 'Subfolder' },
+  { key: 'otherRoles', label: 'Other roles', type: 'textarea' },
+  { key: 'partType', label: 'Part type' },
+  { key: 'triggersPositive', label: 'Triggers (positive)', type: 'textarea' },
+  { key: 'triggersNeutral', label: 'Triggers (neutral)', type: 'textarea' },
+  { key: 'triggersNegative', label: 'Triggers (negative)', type: 'textarea' },
+  { key: 'systemGroups', label: 'System groups' },
+  { key: 'sidesystem', label: 'Sidesystem' },
+  { key: 'subsystem', label: 'Subsystem' },
+  { key: 'linkedProfiles', label: 'Linked profiles' },
+  { key: 'formationDate', label: 'Formation date' },
+  { key: 'formationReason', label: 'Formation reason', type: 'textarea' },
+  { key: 'formationNotes', label: 'Formation notes', type: 'textarea' },
+  { key: 'sourceDetails', label: 'Source details', type: 'textarea' },
+  { key: 'sexual', label: 'Sexual?', type: 'boolean' },
+  { key: 'boundariesHard', label: 'Boundaries (hard)', type: 'textarea' },
+  { key: 'boundariesSoft', label: 'Boundaries (soft)', type: 'textarea' },
+  { key: 'boundariesGreen', label: 'Boundaries (green light)', type: 'textarea' }
+];
+
+function renderHeadmateEditorFields(profile) {
+  if (!headmateEditorFields) return;
+  updateHeadmateFolderDatalists();
+  const fp = profile.fieldPrivacy || {};
+
+  headmateEditorFields.innerHTML = headmateFieldSchema.map((field) => {
+    const id = `headmateEdit_${field.key}`;
+    const value = profile[field.key];
+    const safeValue = value === undefined || value === null ? '' : String(value);
+    const privSel = renderPrivacySelect(`priv_headmateEdit_${field.key}`, fp[field.key] || 'public');
+
+    let inputHtml;
+    if (field.type === 'boolean') {
+      inputHtml = `<label>${field.label}<select class="setting-input" id="${id}"><option value="true" ${value ? 'selected' : ''}>Yes</option><option value="false" ${!value ? 'selected' : ''}>No</option></select></label>`;
+    } else {
+      inputHtml = renderFieldInput(field, id, safeValue);
+    }
+    return `<div class="editor-field-row">${inputHtml}${privSel}</div>`;
+  }).join('');
+
+  bindColorPickers(headmateEditorFields);
+}
+
+function readHeadmateEditorValues(baseProfile) {
+  const updated = { ...baseProfile };
+
+  headmateFieldSchema.forEach((field) => {
+    const element = document.getElementById(`headmateEdit_${field.key}`);
+    if (!element) return;
+
+    if (field.type === 'boolean') {
+      updated[field.key] = element.value === 'true';
+      return;
+    }
+
+    const rawValue = element.value ?? '';
+    updated[field.key] = rawValue.trim() ? rawValue.trim() : (baseProfile[field.key] ?? 'Not set');
+  });
+
+  updated.fieldPrivacy = readFieldPrivacy(headmateFieldSchema, 'headmateEdit', baseProfile);
+  return updated;
+}
+
+function ensureHeadmateStoreForUser(userName) {
+  if (!headmateProfilesByUser[userName]) headmateProfilesByUser[userName] = {};
+  return headmateProfilesByUser[userName];
+}
+
+function getActiveUserName() {
+  return (currentUsername?.textContent || 'Alice').trim();
+}
+
+function getActiveHeadmateProfiles() {
+  return ensureHeadmateStoreForUser(getActiveUserName());
+}
+
+function normalizeFolderName(value, fallback = 'Unsorted') {
+  const trimmed = String(value || '').trim();
+  return trimmed || fallback;
+}
+
+function normalizeSubfolderName(value, fallback = 'General') {
+  const trimmed = String(value || '').trim();
+  return trimmed || fallback;
+}
+
+function ensureHeadmateFolderStore(userName) {
+  if (!headmateFoldersByUser[userName]) {
+    headmateFoldersByUser[userName] = [{ name: 'Unsorted', subfolders: ['General'] }];
+  }
+
+  const folders = headmateFoldersByUser[userName];
+  const profiles = ensureHeadmateStoreForUser(userName);
+
+  Object.values(profiles).forEach((profile) => {
+    const folderName = normalizeFolderName(profile.folder, 'Unsorted');
+    const subfolderName = normalizeSubfolderName(profile.subfolder, 'General');
+    profile.folder = folderName;
+    profile.subfolder = subfolderName;
+
+    let folder = folders.find((item) => normalizeLookupName(item.name) === normalizeLookupName(folderName));
+    if (!folder) {
+      folder = { name: folderName, subfolders: [] };
+      folders.push(folder);
+    }
+    if (!Array.isArray(folder.subfolders)) folder.subfolders = [];
+    if (!folder.subfolders.some((item) => normalizeLookupName(item) === normalizeLookupName(subfolderName))) {
+      folder.subfolders.push(subfolderName);
+    }
+  });
+
+  if (!folders.length) {
+    folders.push({ name: 'Unsorted', subfolders: ['General'] });
+  }
+
+  return folders;
+}
+
+function getActiveHeadmateFolders() {
+  return ensureHeadmateFolderStore(getActiveUserName());
+}
+
+function ensureHeadmateFolderPath(profile) {
+  if (!profile) return { folder: 'Unsorted', subfolder: 'General' };
+  const folder = normalizeFolderName(profile.folder, 'Unsorted');
+  const subfolder = normalizeSubfolderName(profile.subfolder, 'General');
+  profile.folder = folder;
+  profile.subfolder = subfolder;
+  ensureHeadmateFolderStore(getActiveUserName());
+  return { folder, subfolder };
+}
+
+function getHeadmateSubfolderOptions(folderName = 'all') {
+  const folders = getActiveHeadmateFolders();
+  if (folderName && folderName !== 'all') {
+    const folder = folders.find((item) => normalizeLookupName(item.name) === normalizeLookupName(folderName));
+    return folder ? [...new Set(folder.subfolders || [])].sort((a, b) => a.localeCompare(b)) : [];
+  }
+  return [...new Set(folders.flatMap((item) => item.subfolders || []))].sort((a, b) => a.localeCompare(b));
+}
+
+function updateHeadmateFolderDatalists() {
+  const folders = getActiveHeadmateFolders();
+  if (headmateFolderOptions) {
+    headmateFolderOptions.innerHTML = folders
+      .map((folder) => `<option value="${escapeHtml(folder.name)}"></option>`)
+      .join('');
+  }
+  if (headmateSubfolderOptions) {
+    headmateSubfolderOptions.innerHTML = getHeadmateSubfolderOptions(headmateFolderFilter?.value || 'all')
+      .map((subfolder) => `<option value="${escapeHtml(subfolder)}"></option>`)
+      .join('');
+  }
+}
+
+function renderHeadmateFolderFilters() {
+  const folders = getActiveHeadmateFolders();
+  const currentFolder = headmateFolderFilter?.value || 'all';
+  const currentSubfolder = headmateSubfolderFilter?.value || 'all';
+
+  if (headmateFolderFilter) {
+    headmateFolderFilter.innerHTML = ['<option value="all">All Folders</option>']
+      .concat(folders.map((folder) => `<option value="${escapeHtml(folder.name)}">${escapeHtml(folder.name)}</option>`))
+      .join('');
+    headmateFolderFilter.value = folders.some((folder) => folder.name === currentFolder) ? currentFolder : 'all';
+  }
+
+  const subfolderOptions = getHeadmateSubfolderOptions(headmateFolderFilter?.value || 'all');
+  if (headmateSubfolderFilter) {
+    headmateSubfolderFilter.innerHTML = ['<option value="all">All Subfolders</option>']
+      .concat(subfolderOptions.map((subfolder) => `<option value="${escapeHtml(subfolder)}">${escapeHtml(subfolder)}</option>`))
+      .join('');
+    headmateSubfolderFilter.value = subfolderOptions.includes(currentSubfolder) ? currentSubfolder : 'all';
+  }
+
+  updateHeadmateFolderDatalists();
+}
+
+function renderHeadmateFolderTree(entries = Object.entries(getActiveHeadmateProfiles())) {
+  if (!headmateFolderTree) return;
+
+  const folders = getActiveHeadmateFolders();
+  const activeFolder = headmateFolderFilter?.value || 'all';
+  const activeSubfolder = headmateSubfolderFilter?.value || 'all';
+  const counts = new Map();
+
+  entries.forEach(([, profile]) => {
+    const { folder, subfolder } = ensureHeadmateFolderPath(profile);
+    counts.set(`folder:${folder}`, (counts.get(`folder:${folder}`) || 0) + 1);
+    counts.set(`sub:${folder}:${subfolder}`, (counts.get(`sub:${folder}:${subfolder}`) || 0) + 1);
+  });
+
+  headmateFolderTree.innerHTML = `
+    <button class="folder-filter-chip ${activeFolder === 'all' ? 'active' : ''}" type="button" data-folder-filter="all" data-subfolder-filter="all">
+      All ${escapeHtml(getTermLabel('headmates'))} <span class="badge">${entries.length}</span>
+    </button>
+    ${folders.map((folder) => {
+      const subfolders = [...new Set(folder.subfolders || [])].sort((a, b) => a.localeCompare(b));
+      const folderCount = counts.get(`folder:${folder.name}`) || 0;
+      return `
+        <div class="headmate-folder-group">
+          <button class="folder-filter-chip ${activeFolder === folder.name && activeSubfolder === 'all' ? 'active' : ''}" type="button" data-folder-filter="${escapeHtml(folder.name)}" data-subfolder-filter="all">
+            📁 ${escapeHtml(folder.name)} <span class="badge">${folderCount}</span>
+          </button>
+          <div class="headmate-subfolder-list">
+            ${subfolders.map((subfolder) => `
+              <button class="folder-filter-chip folder-filter-chip--sub ${activeFolder === folder.name && activeSubfolder === subfolder ? 'active' : ''}" type="button" data-folder-filter="${escapeHtml(folder.name)}" data-subfolder-filter="${escapeHtml(subfolder)}">
+                ↳ ${escapeHtml(subfolder)} <span class="badge">${counts.get(`sub:${folder.name}:${subfolder}`) || 0}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }).join('')}
+  `;
+}
+
+document.querySelectorAll('.user-option[data-user]').forEach((opt) => {
+  ensureHeadmateStoreForUser(opt.dataset.user);
+  ensureHeadmateFolderStore(opt.dataset.user);
+});
+
+function boolChip(value) {
+  return `<span class="toggle-chip ${value ? 'yes' : 'no'}">${value ? 'Yes' : 'No'}</span>`;
+}
+
+// =====================
+// Privacy Level System
+// =====================
+const PRIVACY_LEVELS = ['public', 'friends', 'trusted', 'partners', 'private'];
+
+function canViewField(fieldLevel, viewerLevel) {
+  return PRIVACY_LEVELS.indexOf(viewerLevel || 'private') >= PRIVACY_LEVELS.indexOf(fieldLevel || 'public');
+}
+
+function getViewerTrustLevel() {
+  const user = getActiveUserName();
+  return systemProfiles[user]?.trustLevel || 'private';
+}
+
+function renderPrivacySelect(id, current) {
+  const opts = PRIVACY_LEVELS.map((l) =>
+    `<option value="${l}"${current === l ? ' selected' : ''}>${l.charAt(0).toUpperCase() + l.slice(1)}</option>`
+  ).join('');
+  return `<select class="privacy-select" id="${id}" title="Who can see this field">${opts}</select>`;
+}
+
+function readFieldPrivacy(schema, prefix, baseProfile) {
+  const privacy = { ...(baseProfile.fieldPrivacy || {}) };
+  schema.forEach((field) => {
+    const el = document.getElementById(`priv_${prefix}_${field.key}`);
+    if (el) privacy[field.key] = el.value;
+  });
+  return privacy;
+}
+
+function privacyBadge(level) {
+  if (!level || level === 'public') return '';
+  return `<span class="privacy-badge privacy-badge--${level}">${escapeHtml(level)}</span>`;
+}
+
+function getModulePrivacyLevel(module) {
+  switch (module) {
+    case 'parts': return privacySettings?.headmatesVisible ? 'public' : 'private';
+    case 'friends': return privacySettings?.partnersVisible ? 'public' : 'private';
+    case 'journal': return privacySettings?.journalVisible ? 'public' : 'private';
+    case 'health': return privacySettings?.healthVisible ? 'public' : 'private';
+    case 'calendar': return privacySettings?.historyVisible ? 'public' : 'private';
+    case 'notifications': return privacySettings?.locationsVisible ? 'public' : 'private';
+    default: return 'public';
+  }
+}
+
+function canAccessModule(module) {
+  return canViewField(getModulePrivacyLevel(module), getViewerTrustLevel());
+}
+
+function normalizeLookupName(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function findHeadmateKeyByName(name) {
+  const normalized = normalizeLookupName(name);
+  return Object.entries(getActiveHeadmateProfiles()).find(([key, profile]) => {
+    return normalizeLookupName(key) === normalized || normalizeLookupName(profile.name) === normalized;
+  })?.[0] || null;
+}
+
+function findPartnerKeyByName(name) {
+  const normalized = normalizeLookupName(name);
+  return Object.entries(partnerProfiles).find(([key, profile]) => {
+    return normalizeLookupName(key) === normalized || normalizeLookupName(profile.name) === normalized;
+  })?.[0] || null;
+}
+
+function findSubsystemKeyByName(name) {
+  const normalized = normalizeLookupName(name);
+  return Object.entries(getActiveSubsystems()).find(([key, profile]) => {
+    return normalizeLookupName(key) === normalized || normalizeLookupName(profile.name) === normalized;
+  })?.[0] || null;
+}
+
+function findLocationKeyByName(name) {
+  const normalized = normalizeLookupName(name);
+  return Object.entries(locationProfiles).find(([key, profile]) => {
+    return normalizeLookupName(key) === normalized || normalizeLookupName(profile.name) === normalized;
+  })?.[0] || null;
+}
+
+function findItemKeyByName(name) {
+  const normalized = normalizeLookupName(name);
+  return Object.entries(itemProfiles).find(([key, profile]) => {
+    return normalizeLookupName(key) === normalized || normalizeLookupName(profile.name) === normalized;
+  })?.[0] || null;
+}
+
+function findSystemUserByName(name) {
+  const normalized = normalizeLookupName(name);
+  return Object.keys(systemProfiles).find((user) => normalizeLookupName(user) === normalized || normalizeLookupName(systemProfiles[user]?.name) === normalized) || null;
+}
+
+const PROFILE_LINK_TARGETS = [
+  { label: 'Headmate', module: 'parts', aliases: ['headmate', 'alter', 'headmates', 'alters'], resolver: findHeadmateKeyByName },
+  { label: 'Partner', module: 'friends', aliases: ['partner', 'partners'], resolver: findPartnerKeyByName },
+  { label: 'Subsystem', module: 'partners', aliases: ['subsystem', 'subsystems'], resolver: findSubsystemKeyByName },
+  { label: 'Location', module: 'notifications', aliases: ['location', 'locations', 'innerworld'], resolver: findLocationKeyByName },
+  { label: 'Item', module: 'items', aliases: ['item', 'items'], resolver: findItemKeyByName },
+  { label: 'System', module: 'system', aliases: ['system', 'account', 'user', 'profile'], resolver: findSystemUserByName }
+];
+
+function getProfileLinkTarget(typeName) {
+  const normalized = normalizeLookupName(typeName);
+  return PROFILE_LINK_TARGETS.find((target) =>
+    normalizeLookupName(target.label) === normalized || target.aliases.some((alias) => normalizeLookupName(alias) === normalized)
+  ) || null;
+}
+
+function parseLinkedTextList(value) {
+  return String(value || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !['not set', 'none', 'n/a'].includes(part.toLowerCase()));
+}
+
+function appendCommaLinkValue(existing, nextValue) {
+  const values = parseLinkedTextList(existing);
+  if (!values.some((item) => normalizeLookupName(item) === normalizeLookupName(nextValue))) {
+    values.push(nextValue);
+  }
+  return values.length ? values.join(', ') : 'Not set';
+}
+
+function resolveProfileReference(part) {
+  const match = String(part || '').match(/^([^:]+):\s*(.+)$/);
+  if (match) {
+    const target = getProfileLinkTarget(match[1]);
+    const label = match[2].trim();
+    const key = target?.resolver(label);
+    return target ? { target, key, label } : null;
+  }
+
+  for (const target of PROFILE_LINK_TARGETS) {
+    const key = target.resolver(part);
+    if (key) return { target, key, label: String(part).trim() };
+  }
+
+  return null;
+}
+
+function renderGenericProfileLinks(text) {
+  const parts = parseLinkedTextList(text);
+  if (!parts.length) return escapeHtml(String(text || 'Not set'));
+  return parts.map((part) => {
+    const resolved = resolveProfileReference(part);
+    return resolved?.key
+      ? renderRelationLink(resolved.target.module, resolved.key, resolved.label)
+      : `<span>${escapeHtml(part)}</span>`;
+  }).join(', ');
+}
+
+function promptForProfileLink(defaultType = 'Headmate') {
+  const typeOptions = PROFILE_LINK_TARGETS.map((target) => target.label).join(', ');
+  const rawType = safePrompt(`Which type of profile do you want to link? (${typeOptions})`, defaultType);
+  if (!rawType || !rawType.trim()) return null;
+  const target = getProfileLinkTarget(rawType);
+  if (!target) {
+    safeAlert('Unknown profile type.');
+    return null;
+  }
+
+  const suggestions = (() => {
+    switch (target.module) {
+      case 'parts': return Object.values(getActiveHeadmateProfiles()).map((profile) => profile.name).join(', ');
+      case 'friends': return Object.values(partnerProfiles).map((profile) => profile.name).join(', ');
+      case 'partners': return Object.values(getActiveSubsystems()).map((profile) => profile.name).join(', ');
+      case 'notifications': return Object.values(locationProfiles).map((profile) => profile.name).join(', ');
+      case 'items': return Object.values(itemProfiles).map((profile) => profile.name).join(', ');
+      case 'system': return Object.keys(systemProfiles).join(', ');
+      default: return '';
+    }
+  })();
+
+  const rawName = safePrompt(
+    `Enter the ${target.label} name to link${suggestions ? `. Available: ${suggestions}` : ''}`,
+    ''
+  );
+  if (!rawName || !rawName.trim()) return null;
+
+  return `${target.label}: ${rawName.trim()}`;
+}
+
+function addProfileLinkToRecord(record, defaultType = 'Headmate') {
+  if (!record) return false;
+  const token = promptForProfileLink(defaultType);
+  if (!token) return false;
+  record.linkedProfiles = appendCommaLinkValue(record.linkedProfiles, token);
+  return true;
+}
+
+function renderRelationLink(module, key, label) {
+  return `<button class="relation-link" type="button" data-nav-module="${module}" data-nav-key="${key}">${escapeHtml(label)}</button>`;
+}
+
+function renderProfileFieldValue(context, field, profile) {
+  if (field.type === 'boolean') return boolChip(Boolean(profile[field.key]));
+
+  const raw = profile[field.key] ?? 'Not set';
+  const text = String(raw);
+  const normalized = text.trim().toLowerCase();
+  if (!text.trim() || ['not set', 'none', 'n/a'].includes(normalized)) {
+    return escapeHtml(text || 'Not set');
+  }
+
+  const parts = text.split(',').map((part) => part.trim()).filter(Boolean);
+  const linkify = (module, resolver) => parts.map((part) => {
+    const key = resolver(part);
+    return key ? renderRelationLink(module, key, part) : `<span>${escapeHtml(part)}</span>`;
+  }).join(', ');
+
+  switch (`${context}:${field.key}`) {
+    case 'headmate:partners':
+      return linkify('friends', findPartnerKeyByName);
+    case 'headmate:subsystem':
+    case 'headmate:sidesystem':
+      return linkify('partners', findSubsystemKeyByName);
+    case 'partner:connections':
+      return linkify('friends', findPartnerKeyByName);
+    case 'partner:linkedSystemUser': {
+      const key = findSystemUserByName(text);
+      return key ? renderRelationLink('system', key, text) : escapeHtml(text);
+    }
+    case 'partner:linkedAlters':
+      return linkify('parts', findHeadmateKeyByName);
+    case 'location:associatedAlters':
+    case 'item:associatedAlters':
+      return linkify('parts', findHeadmateKeyByName);
+    case 'location:connectedLocations':
+      return linkify('notifications', findLocationKeyByName);
+    case 'headmate:linkedProfiles':
+    case 'partner:linkedProfiles':
+    case 'location:linkedProfiles':
+    case 'item:linkedProfiles':
+    case 'subsystem:linkedProfiles':
+      return renderGenericProfileLinks(text);
+    case 'headmate:tags':
+    case 'partner:tags':
+    case 'subsystem:tags':
+    case 'location:tags':
+    case 'item:tags':
+    case 'item:tag':
+      return renderTagPills(text);
+    case 'headmate:customFields':
+    case 'partner:customFields':
+    case 'subsystem:customFields':
+    case 'location:customFields':
+    case 'item:customFields':
+      return renderCustomFieldSummary(text);
+    default:
+      return renderMarkdown(text);
+  }
+}
+
+function openProfileFromLink(module, key) {
+  if (!key) return;
+  navigateTo(module);
+
+  if (module === 'parts') {
+    const profiles = getActiveHeadmateProfiles();
+    if (!profiles[key]) return;
+    selectedHeadmateKey = key;
+    renderHeadmatesTable();
+    document.querySelector(`#page-parts [data-headmate="${key}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  if (module === 'friends') {
+    if (!partnerProfiles[key]) return;
+    selectedPartnerKey = key;
+    renderPartnersTable();
+    document.querySelector(`#partnersTableBody tr[data-partner="${key}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  if (module === 'system') {
+    if (!systemProfiles[key]) return;
+    const card = Array.from(document.querySelectorAll('#page-system [data-system-user]')).find((el) => decodeURIComponent(el.dataset.systemUser || '') === key);
+    card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  if (module === 'partners') {
+    if (!getActiveSubsystems()[key]) return;
+    selectedSubsystemKey = key;
+    renderSubsystemsGrid();
+    renderSubsystemProfile(key);
+    subsystemProfile?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (module === 'notifications') {
+    if (!locationProfiles[key]) return;
+    selectedLocationKey = key;
+    renderLocationsTable(locationsSearch?.value || '');
+    renderLocationProfile(locationProfiles[key]);
+    locationProfile?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (module === 'items') {
+    if (!itemProfiles[key]) return;
+    selectedItemKey = key;
+    renderItemsTable(itemsSearch?.value || '');
+    renderItemProfile(itemProfiles[key]);
+    itemProfile?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('.relation-link[data-nav-module][data-nav-key]');
+  if (!link) return;
+  event.preventDefault();
+  event.stopPropagation();
+  openProfileFromLink(link.dataset.navModule, link.dataset.navKey);
+});
+
+function normalizeHexColor(value, fallback = '#6c63ff') {
+  const raw = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : fallback;
+}
+
+function isMediaUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  return /^(https?:\/\/|data:image\/|blob:|\.\/|\/)/i.test(raw) || /\.(gif|png|jpe?g|webp|svg)(\?.*)?$/i.test(raw);
+}
+
+function escapeCssUrl(value) {
+  return String(value || '').trim().replace(/'/g, '%27');
+}
+
+function applyPhotoStyle(el, value, fallbackText = '?', colorValue = '#6c63ff') {
+  if (!el) return;
+  const raw = String(value || '').trim();
+  const fallback = String(fallbackText || '?').trim() || '?';
+  const color = normalizeHexColor(colorValue, '#6c63ff');
+  const hasMedia = isMediaUrl(raw);
+
+  el.style.backgroundColor = color;
+  if (hasMedia) {
+    el.style.backgroundImage = `url('${escapeCssUrl(raw)}')`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    el.style.backgroundRepeat = 'no-repeat';
+    el.style.color = 'transparent';
+    el.textContent = '';
+    return;
+  }
+
+  el.style.backgroundImage = '';
+  el.style.backgroundSize = '';
+  el.style.backgroundPosition = '';
+  el.style.backgroundRepeat = '';
+  el.style.color = '';
+  el.textContent = raw || fallback;
+}
+
+function renderAvatarMarkup(value, fallbackText = '?', colorValue = '#6c63ff', sizeClass = '') {
+  const raw = String(value || '').trim();
+  const fallback = String(fallbackText || '?').trim() || '?';
+  const color = normalizeHexColor(colorValue, '#6c63ff');
+  const hasMedia = isMediaUrl(raw);
+  const className = ['avatar', sizeClass, hasMedia ? 'avatar-media' : ''].filter(Boolean).join(' ');
+  const styleParts = [`background:${color}`];
+
+  if (hasMedia) {
+    styleParts.push(`background-image:url('${escapeCssUrl(raw)}')`, 'background-size:cover', 'background-position:center', 'background-repeat:no-repeat', 'color:transparent');
+  }
+
+  return `<div class="${className}" style="${styleParts.join(';')}">${hasMedia ? '' : escapeHtml(raw || fallback)}</div>`;
+}
+
+function renderTagPills(text) {
+  const tags = parseLinkedTextList(text).map((tag) => tag.replace(/^#/, '').trim()).filter(Boolean);
+  if (!tags.length) return escapeHtml(String(text || 'Not set'));
+  return `<div class="tag-pill-row">${tags.map((tag) => `<span class="tag-pill">#${escapeHtml(tag)}</span>`).join('')}</div>`;
+}
+
+function parseCustomFieldEntries(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !['not set', 'none', 'n/a'].includes(line.toLowerCase()))
+    .map((line, index) => {
+      const [label, ...rest] = line.split(':');
+      if (!rest.length) {
+        return { label: `Custom ${index + 1}`, value: label.trim() };
+      }
+      return {
+        label: label.trim() || `Custom ${index + 1}`,
+        value: rest.join(':').trim() || 'Not set'
+      };
+    })
+    .filter((entry) => entry.value && !['not set', 'none', 'n/a'].includes(entry.value.toLowerCase()));
+}
+
+function renderCustomFieldSummary(value) {
+  const entries = parseCustomFieldEntries(value);
+  if (!entries.length) return escapeHtml(String(value || 'Not set'));
+  return `<span class="setting-value">${entries.length} custom field${entries.length === 1 ? '' : 's'} saved</span>`;
+}
+
+function renderInlineMarkdown(text) {
+  return text
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/_([^_\n]+)_/g, '<em>$1</em>');
+}
+
+function renderMarkdown(text) {
+  const raw = String(text ?? '');
+  const normalized = raw.trim().toLowerCase();
+  if (!raw.trim() || ['not set', 'none', 'n/a'].includes(normalized)) {
+    return escapeHtml(raw || 'Not set');
+  }
+
+  const lines = raw.replace(/\r/g, '').split('\n');
+  const blocks = [];
+  let listBuffer = [];
+  let listType = null;
+  let paragraphBuffer = [];
+
+  const flushParagraph = () => {
+    if (!paragraphBuffer.length) return;
+    blocks.push(`<p>${paragraphBuffer.map((line) => renderInlineMarkdown(escapeHtml(line))).join('<br/>')}</p>`);
+    paragraphBuffer = [];
+  };
+
+  const flushList = () => {
+    if (!listBuffer.length) return;
+    const tag = listType === 'ol' ? 'ol' : 'ul';
+    blocks.push(`<${tag}>${listBuffer.map((item) => `<li>${renderInlineMarkdown(escapeHtml(item))}</li>`).join('')}</${tag}>`);
+    listBuffer = [];
+    listType = null;
+  };
+
+  lines.forEach((line) => {
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+
+    if (unordered) {
+      flushParagraph();
+      if (listType && listType !== 'ul') flushList();
+      listType = 'ul';
+      listBuffer.push(unordered[1]);
+      return;
+    }
+
+    if (ordered) {
+      flushParagraph();
+      if (listType && listType !== 'ol') flushList();
+      listType = 'ol';
+      listBuffer.push(ordered[1]);
+      return;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    paragraphBuffer.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return `<div class="markdown-content">${blocks.join('') || `<p>${renderInlineMarkdown(escapeHtml(raw)).replace(/\n/g, '<br/>')}</p>`}</div>`;
+}
+
+function renderCustomFieldArticles(profile, privacyValue = 'public') {
+  return parseCustomFieldEntries(profile?.customFields).map((entry) => {
+    const badge = privacyBadge(privacyValue);
+    return `<article class="headmate-field headmate-field--custom"><span class="headmate-field-label">${escapeHtml(entry.label)}${badge}</span><div class="headmate-field-value">${renderMarkdown(entry.value)}</div></article>`;
+  });
+}
+
+function renderFieldInput(field, id, safeValue) {
+  const placeholder = field.key === 'profilePhoto'
+    ? 'Letter, GIF URL, or image URL'
+    : field.key === 'banner'
+      ? 'Banner text or image/GIF URL'
+      : field.key === 'linkedProfiles'
+        ? 'Example: Headmate: Alex, Location: Front Room'
+        : field.key === 'linkedAlters'
+          ? 'Comma-separated alter names'
+          : field.key === 'partnerHeadmates'
+            ? 'Example: Jun (Host), Mira (Protector)'
+            : field.key === 'tags' || field.key === 'tag'
+              ? 'Comma-separated tags'
+              : field.key === 'customFields'
+                ? 'Example: Favorite drink: Tea\nSafe show: Bee and PuppyCat'
+                : '';
+
+  if (field.key === 'color') {
+    const color = normalizeHexColor(safeValue, '#6c63ff');
+    return `<label>${field.label}<div class="color-input-row"><input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || color))}" placeholder="#6c63ff" /><input type="color" id="${id}Picker" data-color-target="${id}" value="${color}" /></div></label>`;
+  }
+  if (field.type === 'textarea') {
+    return `<label>${field.label}<textarea class="setting-input" id="${id}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''}>${escapeHtml(String(safeValue || ''))}</textarea></label>`;
+  }
+  if (field.key === 'folder') {
+    return `<label>${field.label}<input class="setting-input" id="${id}" list="headmateFolderOptions" type="text" value="${escapeHtml(String(safeValue || ''))}" placeholder="e.g. Front Crew" /></label>`;
+  }
+  if (field.key === 'subfolder') {
+    return `<label>${field.label}<input class="setting-input" id="${id}" list="headmateSubfolderOptions" type="text" value="${escapeHtml(String(safeValue || ''))}" placeholder="e.g. Protectors" /></label>`;
+  }
+  return `<label>${field.label}<input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || ''))}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''} /></label>`;
+}
+
+function bindColorPickers(container) {
+  if (!container) return;
+  container.querySelectorAll('input[type="color"][data-color-target]').forEach((picker) => {
+    const targetId = picker.getAttribute('data-color-target');
+    const textInput = targetId ? document.getElementById(targetId) : null;
+    if (!textInput) return;
+
+    picker.addEventListener('input', () => {
+      textInput.value = picker.value;
+    });
+
+    textInput.addEventListener('input', () => {
+      const value = textInput.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(value)) picker.value = value;
+    });
+  });
+}
+
+function applyBannerStyle(el, bannerValue, colorValue, colorVarName = '--headmate-color') {
+  if (!el) return;
+  const banner = String(bannerValue || '').trim();
+  const color = normalizeHexColor(colorValue, '#6c63ff');
+  el.style.setProperty(colorVarName, color);
+  el.title = banner;
+
+  if (isMediaUrl(banner)) {
+    el.style.backgroundImage = `linear-gradient(120deg, rgba(0,0,0,0.38), rgba(0,0,0,0.12)), url('${escapeCssUrl(banner)}')`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    el.style.backgroundRepeat = 'no-repeat';
+  } else {
+    el.style.backgroundImage = '';
+    el.style.backgroundSize = '';
+    el.style.backgroundPosition = '';
+    el.style.backgroundRepeat = '';
+  }
+}
+
+function renderHeadmateProfile(profile) {
+  if (!headmateProfileGrid || !headmateProfilePanel) return;
+
+  const headmatePhotoValue = profile.profilePhoto || 'H';
+  applyPhotoStyle(headmatePhoto, headmatePhotoValue, profile.name?.[0] || 'H', profile.color || '#6c63ff');
+  const folderPath = ensureHeadmateFolderPath(profile);
+  headmateName.textContent = profile.name;
+  headmateMeta.textContent = `${profile.pronouns || 'Pronouns TBD'} • ${profile.mainRole || 'No role set'} • ${folderPath.folder} / ${folderPath.subfolder}`;
+  applyBannerStyle(headmateBanner, profile.banner, profile.color, '--headmate-color');
+
+  const fp = profile.fieldPrivacy || {};
+  const viewerLevel = getViewerTrustLevel();
+
+  const baseHeadmateFields = headmateFieldSchema
+    .filter((field) => field.key !== 'customFields' && canViewField(fp[field.key] || 'public', viewerLevel))
+    .map((field) => {
+      const value = renderProfileFieldValue('headmate', field, profile);
+      const badge = privacyBadge(fp[field.key]);
+      return `<article class="headmate-field"><span class="headmate-field-label">${escapeHtml(field.label)}${badge}</span><div class="headmate-field-value">${value}</div></article>`;
+    });
+  const headmateCustomFields = canViewField(fp.customFields || 'public', viewerLevel)
+    ? renderCustomFieldArticles(profile, fp.customFields || 'public')
+    : [];
+  headmateProfileGrid.innerHTML = baseHeadmateFields.concat(headmateCustomFields).join('');
+
+  headmateProfilePanel.hidden = false;
+}
+
+function renderHeadmatesTable() {
+  if (!headmatesTableBody) return;
+
+  const activeProfiles = getActiveHeadmateProfiles();
+  const entries = Object.entries(activeProfiles);
+  renderHeadmateFolderFilters();
+
+  if (!entries.length) {
+    headmatesTableBody.innerHTML = `<tr class="empty-headmates"><td colspan="4">No ${escapeHtml(getTermLabel('headmates').toLowerCase())} for this user yet.</td></tr>`;
+    renderHeadmateFolderTree([]);
+    selectedHeadmateKey = null;
+    pendingHeadmateDraft = null;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
+    if (headmateProfilePanel) headmateProfilePanel.hidden = true;
+    if (headmateEditor) headmateEditor.hidden = true;
+    return;
+  }
+
+  const query = (headmatesSearchInput?.value || '').trim().toLowerCase();
+  const folderFilter = headmateFolderFilter?.value || 'all';
+  const subfolderFilter = headmateSubfolderFilter?.value || 'all';
+
+  const filtered = entries
+    .map(([key, profile]) => {
+      const path = ensureHeadmateFolderPath(profile);
+      return [key, profile, path];
+    })
+    .filter(([, profile, path]) => {
+      const matchesQuery = !query || [profile.name, profile.mainRole, profile.nickname, profile.tags, path.folder, path.subfolder]
+        .some((value) => String(value || '').toLowerCase().includes(query));
+      const matchesFolder = folderFilter === 'all' || normalizeLookupName(path.folder) === normalizeLookupName(folderFilter);
+      const matchesSubfolder = subfolderFilter === 'all' || normalizeLookupName(path.subfolder) === normalizeLookupName(subfolderFilter);
+      return matchesQuery && matchesFolder && matchesSubfolder;
+    })
+    .sort((a, b) => {
+      const folderDiff = a[2].folder.localeCompare(b[2].folder);
+      if (folderDiff) return folderDiff;
+      const subDiff = a[2].subfolder.localeCompare(b[2].subfolder);
+      if (subDiff) return subDiff;
+      return String(a[1].name || '').localeCompare(String(b[1].name || ''));
+    });
+
+  renderHeadmateFolderTree(entries);
+
+  if (!filtered.length) {
+    headmatesTableBody.innerHTML = `<tr class="empty-headmates"><td colspan="4">No ${escapeHtml(getTermLabel('headmates').toLowerCase())} match the current search or folder filter.</td></tr>`;
+    selectedHeadmateKey = null;
+    pendingHeadmateDraft = null;
+    if (headmateProfilePanel) headmateProfilePanel.hidden = true;
+    if (headmateEditor) headmateEditor.hidden = true;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
+    return;
+  }
+
+  let currentGroup = '';
+  let visibleIndex = 0;
+  headmatesTableBody.innerHTML = filtered.map(([key, profile, path]) => {
+    visibleIndex += 1;
+    const groupLabel = `${path.folder} / ${path.subfolder}`;
+    const groupRow = currentGroup !== groupLabel
+      ? `<tr class="folder-row"><td colspan="4">📁 ${escapeHtml(path.folder)} <span>/ ${escapeHtml(path.subfolder)}</span></td></tr>`
+      : '';
+    currentGroup = groupLabel;
+    return `${groupRow}
+      <tr data-headmate="${key}" class="${selectedHeadmateKey === key ? 'selected' : ''}">
+        <td>#${String(visibleIndex).padStart(3, '0')}</td>
+        <td>${escapeHtml(profile.name)}</td>
+        <td>${escapeHtml(profile.mainRole || 'No role set')}</td>
+        <td>${escapeHtml(groupLabel)}</td>
+      </tr>`;
+  }).join('');
+
+  const selectedStillVisible = filtered.some(([key]) => key === selectedHeadmateKey);
+  if (selectedHeadmateKey && activeProfiles[selectedHeadmateKey] && selectedStillVisible) {
+    renderHeadmateProfile(activeProfiles[selectedHeadmateKey]);
+  } else {
+    selectedHeadmateKey = null;
+    pendingHeadmateDraft = null;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
+    if (headmateProfilePanel) headmateProfilePanel.hidden = true;
+    if (headmateEditor) headmateEditor.hidden = true;
+  }
+}
+
+if (headmatesTableBody) {
+  headmatesTableBody.addEventListener('click', (event) => {
+    const row = event.target.closest('tr[data-headmate]');
+    if (!row) return;
+
+    const key = row.dataset.headmate;
+    const activeProfiles = getActiveHeadmateProfiles();
+    const profile = activeProfiles[key];
+    if (!profile) return;
+
+    document.querySelectorAll('#page-parts tbody tr[data-headmate]').forEach((other) => other.classList.remove('selected'));
+    row.classList.add('selected');
+    selectedHeadmateKey = key;
+    pendingHeadmateDraft = null;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
+    renderHeadmateProfile(profile);
+    headmateProfilePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (headmatesSearchInput) {
+  headmatesSearchInput.addEventListener('input', renderHeadmatesTable);
+}
+
+if (headmateFolderFilter) {
+  headmateFolderFilter.addEventListener('change', () => {
+    renderHeadmateFolderFilters();
+    renderHeadmatesTable();
+  });
+}
+
+if (headmateSubfolderFilter) {
+  headmateSubfolderFilter.addEventListener('change', renderHeadmatesTable);
+}
+
+if (manageHeadmateFoldersBtn) {
+  manageHeadmateFoldersBtn.addEventListener('click', () => {
+    const raw = safePrompt('Create or register a folder path using Folder or Folder/Subfolder:', 'Front Crew/Protectors');
+    if (!raw || !raw.trim()) return;
+    const [folderPart, subfolderPart] = raw.split('/').map((part) => part.trim()).filter(Boolean);
+    const folderName = normalizeFolderName(folderPart, 'Unsorted');
+    const subfolderName = normalizeSubfolderName(subfolderPart, 'General');
+    const folders = getActiveHeadmateFolders();
+    let folder = folders.find((item) => normalizeLookupName(item.name) === normalizeLookupName(folderName));
+    if (!folder) {
+      folder = { name: folderName, subfolders: [] };
+      folders.push(folder);
+    }
+    if (!folder.subfolders.some((item) => normalizeLookupName(item) === normalizeLookupName(subfolderName))) {
+      folder.subfolders.push(subfolderName);
+    }
+    renderHeadmatesTable();
+    safeAlert(`Saved folder path: ${folderName} / ${subfolderName}`);
+  });
+}
+
+if (headmateFolderTree) {
+  headmateFolderTree.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-folder-filter]');
+    if (!button) return;
+    if (headmateFolderFilter) headmateFolderFilter.value = button.dataset.folderFilter || 'all';
+    renderHeadmateFolderFilters();
+    if (headmateSubfolderFilter) headmateSubfolderFilter.value = button.dataset.subfolderFilter || 'all';
+    renderHeadmatesTable();
+  });
+}
+
+if (linkHeadmateSubsystemBtn) {
+  linkHeadmateSubsystemBtn.addEventListener('click', () => {
+    const profiles = getActiveHeadmateProfiles();
+    const subsystems = getActiveSubsystems();
+    if (!selectedHeadmateKey || !profiles[selectedHeadmateKey]) {
+      safeAlert('Select a headmate first.');
+      return;
+    }
+    const subsystemEntries = Object.entries(subsystems);
+    if (!subsystemEntries.length) {
+      safeAlert('Create a subsystem first so there is something to link.');
+      return;
+    }
+
+    const names = subsystemEntries.map(([, subsystem]) => subsystem.name).join(', ');
+    const rawName = safePrompt(`Enter the subsystem name to link. Available: ${names}`, subsystemEntries[0][1].name);
+    if (!rawName || !rawName.trim()) return;
+
+    const subsystemKey = findSubsystemKeyByName(rawName);
+    if (!subsystemKey || !subsystems[subsystemKey]) {
+      safeAlert('No matching subsystem was found.');
+      return;
+    }
+
+    const profile = profiles[selectedHeadmateKey];
+    const subsystem = subsystems[subsystemKey];
+    profile.subsystem = appendCommaLinkValue(profile.subsystem, subsystem.name);
+    if (!Array.isArray(subsystem.linkedHeadmates)) subsystem.linkedHeadmates = [];
+    if (!subsystem.linkedHeadmates.includes(selectedHeadmateKey)) {
+      subsystem.linkedHeadmates.push(selectedHeadmateKey);
+    }
+
+    renderHeadmatesTable();
+    renderHeadmateProfile(profile);
+    renderSubsystemsGrid();
+    if (selectedSubsystemKey === subsystemKey) renderSubsystemProfile(subsystemKey);
+  });
+}
+
+if (linkHeadmateProfileBtn) {
+  linkHeadmateProfileBtn.addEventListener('click', () => {
+    const profiles = getActiveHeadmateProfiles();
+    if (!selectedHeadmateKey || !profiles[selectedHeadmateKey]) {
+      safeAlert('Select a headmate first.');
+      return;
+    }
+    const profile = profiles[selectedHeadmateKey];
+    if (addProfileLinkToRecord(profile, 'Partner')) {
+      renderHeadmatesTable();
+      renderHeadmateProfile(profile);
+    }
+  });
+}
+
+renderHeadmatesTable();
+
+function slugifyHeadmateName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `headmate-${Date.now()}`;
+}
+
+function normalizeStatus(status) {
+  const safe = String(status || '').trim().toLowerCase();
+  if (safe === 'active') return 'Active';
+  if (safe === 'inactive') return 'Inactive';
+  return 'Pending';
+}
+
+function createDefaultHeadmateProfile(name, region, status) {
+  const initial = name[0]?.toUpperCase() || '?';
+  const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+
+  return {
+    profilePhoto: initial,
+    banner: `${name} Banner`,
+    color,
+    interactionStatus: status === 'Active' ? 'Open to interaction' : 'Limited interaction',
+    twsCws: 'Not set',
+    byi: 'Not set',
+    dni: 'Not set',
+    name,
+    nickname: 'Not set',
+    alias: 'Not set',
+    petnames: 'Not set',
+    pronouns: 'Not set',
+    gender: 'Not set',
+    orientation: 'Not set',
+    amory: 'Not set',
+    partnershipStatus: 'Not set',
+    partners: 'Not set',
+    searching: 'Not set',
+    verbality: 'Not set',
+    aacUsage: 'Not set',
+    toneTagUsage: 'Not set',
+    age: 'Not set',
+    ageType: 'Not set',
+    birthdayRelative: 'Not set',
+    species: 'Not set',
+    regressor: false,
+    regressionNotes: 'Not set',
+    caregiver: false,
+    caregiverNotes: 'Not set',
+    mainRole: region,
+    folder: 'Unsorted',
+    subfolder: 'General',
+    tags: 'Not set',
+    customFields: 'Not set',
+    otherRoles: 'Not set',
+    partType: 'Not set',
+    triggersPositive: 'Not set',
+    triggersNeutral: 'Not set',
+    triggersNegative: 'Not set',
+    systemGroups: 'Not set',
+    sidesystem: 'Not set',
+    subsystem: 'Not set',
+    linkedProfiles: 'Not set',
+    formationDate: 'Not set',
+    formationReason: 'Not set',
+    formationNotes: 'Not set',
+    sourceDetails: 'Not set',
+    sexual: false,
+    boundariesHard: 'Not set',
+    boundariesSoft: 'Not set',
+    boundariesGreen: 'Not set'
+  };
+}
+
+if (addHeadmateBtn && headmatesTableBody) {
+  addHeadmateBtn.addEventListener('click', () => {
+    creatingHeadmate = true;
+    selectedHeadmateKey = null;
+    pendingHeadmateDraft = null;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = false;
+
+    document.querySelectorAll('#page-parts tbody tr[data-headmate]').forEach((other) => other.classList.remove('selected'));
+
+    const defaultName = `Headmate ${Object.keys(getActiveHeadmateProfiles()).length + 1}`;
+    const seedProfile = createDefaultHeadmateProfile(defaultName, 'Support', 'Pending');
+    renderHeadmateProfile(seedProfile);
+    renderHeadmateEditorFields(seedProfile);
+
+    if (headmateProfilePanel) headmateProfilePanel.hidden = false;
+    if (headmateEditor) {
+      headmateEditor.hidden = false;
+      headmateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (addHeadmateFromTemplateBtn && headmatesTableBody) {
+  addHeadmateFromTemplateBtn.addEventListener('click', () => {
+    const template = pickTemplateForTarget('headmate');
+    if (!template) return;
+    creatingHeadmate = true;
+    selectedHeadmateKey = null;
+    pendingHeadmateDraft = null;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = false;
+
+    document.querySelectorAll('#page-parts tbody tr[data-headmate]').forEach((other) => other.classList.remove('selected'));
+
+    const baseName = (template.name || '').trim() || `Headmate ${Object.keys(getActiveHeadmateProfiles()).length + 1}`;
+    const seedProfile = {
+      ...createDefaultHeadmateProfile(baseName, template.category || 'Support', 'Pending'),
+      name: baseName,
+      mainRole: template.category || 'Support',
+      tags: template.category || 'Not set',
+      customFields: template.defaultContent || 'Not set',
+      byi: template.defaultContent || 'Not set',
+      banner: template.banner || `${baseName} Banner`,
+      color: template.color || '#6c63ff',
+      profilePhoto: baseName[0]?.toUpperCase() || 'H'
+    };
+    renderHeadmateProfile(seedProfile);
+    renderHeadmateEditorFields(seedProfile);
+
+    if (headmateProfilePanel) headmateProfilePanel.hidden = false;
+    if (headmateEditor) {
+      headmateEditor.hidden = false;
+      headmateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (editHeadmateBtn) {
+  editHeadmateBtn.addEventListener('click', () => {
+    const activeProfiles = getActiveHeadmateProfiles();
+    if (!selectedHeadmateKey || !activeProfiles[selectedHeadmateKey]) {
+      safeAlert('Select a headmate first.');
+      return;
+    }
+
+    const profile = activeProfiles[selectedHeadmateKey];
+    renderHeadmateEditorFields(profile);
+
+    if (headmateEditor) {
+      headmateEditor.hidden = false;
+      headmateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    creatingHeadmate = false;
+    saveHeadmateBtn.disabled = false;
+  });
+}
+
+if (saveHeadmateBtn) {
+  saveHeadmateBtn.addEventListener('click', () => {
+    const activeProfiles = getActiveHeadmateProfiles();
+    const profileToRead = creatingHeadmate
+      ? createDefaultHeadmateProfile('Headmate', 'Support', 'Pending')
+      : activeProfiles[selectedHeadmateKey];
+
+    if (!profileToRead) return;
+
+    const updatedDraft = readHeadmateEditorValues(profileToRead);
+    const nameFromForm = (updatedDraft.name || '').trim();
+    if (!nameFromForm) {
+      safeAlert('Name is required.');
+      return;
+    }
+
+    let profile;
+
+    if (creatingHeadmate) {
+      const role = (updatedDraft.mainRole || '').trim() || 'Support';
+      const baseKey = slugifyHeadmateName(nameFromForm);
+      let key = baseKey;
+      let suffix = 2;
+      while (activeProfiles[key]) {
+        key = `${baseKey}-${suffix}`;
+        suffix += 1;
+      }
+
+      activeProfiles[key] = createDefaultHeadmateProfile(nameFromForm, role, 'Pending');
+      selectedHeadmateKey = key;
+      profile = activeProfiles[key];
+    } else {
+      if (!selectedHeadmateKey) return;
+      profile = activeProfiles[selectedHeadmateKey];
+      if (!profile) return;
+    }
+
+    pendingHeadmateDraft = updatedDraft;
+
+    Object.assign(profile, pendingHeadmateDraft);
+    pendingHeadmateDraft = null;
+    creatingHeadmate = false;
+    saveHeadmateBtn.disabled = true;
+    if (headmateEditor) headmateEditor.hidden = true;
+
+    renderHeadmatesTable();
+    renderHeadmateProfile(profile);
+  });
+}
+
+if (deleteHeadmateBtn) {
+  deleteHeadmateBtn.addEventListener('click', () => {
+    const activeProfiles = getActiveHeadmateProfiles();
+    if (!selectedHeadmateKey || !activeProfiles[selectedHeadmateKey]) {
+      safeAlert('Select a headmate first.');
+      return;
+    }
+
+    const profile = activeProfiles[selectedHeadmateKey];
+    if (!safeConfirm(`Delete headmate ${profile.name}?`)) return;
+
+    delete activeProfiles[selectedHeadmateKey];
+    selectedHeadmateKey = null;
+    pendingHeadmateDraft = null;
+    creatingHeadmate = false;
+    if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
+    headmateProfilePanel.hidden = true;
+    renderHeadmatesTable();
+  });
+}
+
+if (bulkAddHeadmatesBtn && headmatesTableBody) {
+  bulkAddHeadmatesBtn.addEventListener('click', () => {
+    const raw = safePrompt(
+      'Bulk add headmates. Enter one per line as Name|Role|Status. Status can be Active, Pending, or Inactive.\\nExample:\\nNova|Core|Active\\nEmber|Support|Pending'
+    , 'Nova|Core|Active');
+
+    if (!raw) return;
+
+    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (!lines.length) return;
+
+    let addedCount = 0;
+
+    lines.forEach((line) => {
+      const [rawName, rawRegion, rawStatus] = line.split('|').map((part) => (part || '').trim());
+      if (!rawName) return;
+
+      const name = rawName;
+      const region = rawRegion || 'No role set';
+      const status = normalizeStatus(rawStatus);
+
+      const baseKey = slugifyHeadmateName(name);
+      let key = baseKey;
+      let suffix = 2;
+      const activeProfiles = getActiveHeadmateProfiles();
+      while (activeProfiles[key]) {
+        key = `${baseKey}-${suffix}`;
+        suffix += 1;
+      }
+
+      activeProfiles[key] = createDefaultHeadmateProfile(name, region, status);
+      addedCount += 1;
+    });
+
+    if (addedCount > 0) {
+      renderHeadmatesTable();
+      safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}.`);
+    }
+  });
+}
+
+// =====================
+// Security: HTML Escape
+// =====================
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// =====================
+// Innerworld: Locations database
+// =====================
+const locationsSearch = document.getElementById('locationsSearch');
+const locationsTableBody = document.getElementById('locationsTableBody');
+const addLocationBtn = document.getElementById('addLocationBtn');
+const addLocationFromTemplateBtn = document.getElementById('addLocationFromTemplateBtn');
+const locationProfile = document.getElementById('locationProfile');
+const locationBanner = document.getElementById('locationBanner');
+const locationPhoto = document.getElementById('locationPhoto');
+const locationName = document.getElementById('locationName');
+const locationMeta = document.getElementById('locationMeta');
+const locationProfileGrid = document.getElementById('locationProfileGrid');
+const editLocationBtn = document.getElementById('editLocationBtn');
+const linkLocationProfileBtn = document.getElementById('linkLocationProfileBtn');
+const saveLocationBtn = document.getElementById('saveLocationBtn');
+const deleteLocationBtn = document.getElementById('deleteLocationBtn');
+const locationEditor = document.getElementById('locationEditor');
+const locationEditorFields = document.getElementById('locationEditorFields');
+const locationSublocationList = document.getElementById('locationSublocationList');
+const linkSublocationBtn = document.getElementById('linkSublocationBtn');
+const sublocationLinkPicker = document.getElementById('sublocationLinkPicker');
+const sublocationLinkSelect = document.getElementById('sublocationLinkSelect');
+const sublocationLinkConfirmBtn = document.getElementById('sublocationLinkConfirmBtn');
+const sublocationLinkCancelBtn = document.getElementById('sublocationLinkCancelBtn');
+const locationMapCanvas = document.getElementById('locationMapCanvas');
+const refreshLocationMapBtn = document.getElementById('refreshLocationMapBtn');
+
+const locationFieldSchema = [
+  { key: 'name', label: 'Name' },
+  { key: 'type', label: 'Type' },
+  { key: 'description', label: 'Description', type: 'textarea' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'customFields', label: 'Custom fields', type: 'textarea' },
+  { key: 'associatedAlters', label: 'Associated alters' },
+  { key: 'connectedLocations', label: 'Connected locations' },
+  { key: 'linkedProfiles', label: 'Linked profiles' },
+  { key: 'profilePhoto', label: 'Profile photo' },
+  { key: 'banner', label: 'Banner' },
+  { key: 'color', label: 'Color' }
+];
+
+const locationProfiles = {
+  'front-room': {
+    name: 'Front Room',
+    type: 'Common area',
+    description: 'Primary shared fronting space used for coordination and quick check-ins.',
+    tags: 'front, coordination',
+    customFields: 'Weather: Calm\nLighting: Soft purple glow',
+    associatedAlters: 'Alex, Rowan, Sky',
+    connectedLocations: 'Archive Hall, Garden Path',
+    sublocations: ['archive-hall'],
+    profilePhoto: 'F',
+    banner: 'Central Hub',
+    color: '#6c63ff'
+  },
+  'archive-hall': {
+    name: 'Archive Hall',
+    type: 'Memory archive',
+    description: 'A structured corridor with stored records, timelines, and internal references.',
+    tags: 'archive, memory',
+    customFields: 'Access level: Guided only',
+    associatedAlters: 'Alex',
+    connectedLocations: 'Front Room',
+    sublocations: [],
+    profilePhoto: 'A',
+    banner: 'Records Wing',
+    color: '#43d9ad'
+  }
+};
+
+let selectedLocationKey = null;
+let creatingLocation = false;
+
+function createDefaultLocation(name) {
+  const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  return {
+    name,
+    type: 'Other',
+    description: 'Not set',
+    tags: 'Not set',
+    customFields: 'Not set',
+    associatedAlters: 'Not set',
+    connectedLocations: 'Not set',
+    linkedProfiles: 'Not set',
+    sublocations: [],
+    profilePhoto: name[0]?.toUpperCase() || 'L',
+    banner: `${name} Banner`,
+    color
+  };
+}
+
+function renderSublocationList(profile) {
+  if (!locationSublocationList) return;
+  const sublocationKeys = profile.sublocations || [];
+  if (!sublocationKeys.length) {
+    locationSublocationList.innerHTML = '<p class="headmate-hint" style="margin:8px 0">No sublocations linked yet.</p>';
+    return;
+  }
+
+  locationSublocationList.innerHTML = sublocationKeys.map((key) => {
+    const location = locationProfiles[key];
+    if (!location) return '';
+    return `
+      <div class="subsystem-hub-member" data-sublocation-key="${key}">
+        ${renderAvatarMarkup(location.profilePhoto || location.name?.[0]?.toUpperCase() || 'L', location.name?.[0]?.toUpperCase() || 'L', location.color || '#6c63ff', 'sm')}
+        <div class="subsystem-hub-member-info">
+          <strong>${escapeHtml(location.name)}</strong>
+          <span>${escapeHtml(location.type || 'Other')}</span>
+        </div>
+        <button class="btn-sm subsystem-unlink-btn" type="button" data-unlink-sublocation-key="${key}" title="Unlink">&#10005;</button>
+      </div>
+    `;
+  }).filter(Boolean).join('');
+}
+
+function renderLocationEditorFields(profile) {
+  if (!locationEditorFields) return;
+  const fp = profile.fieldPrivacy || {};
+  locationEditorFields.innerHTML = locationFieldSchema.map((field) => {
+    const id = `locationEdit_${field.key}`;
+    const safeValue = String(profile[field.key] ?? '');
+    const privSel = renderPrivacySelect(`priv_locationEdit_${field.key}`, fp[field.key] || 'public');
+    const inputHtml = renderFieldInput(field, id, safeValue);
+    return `<div class="editor-field-row">${inputHtml}${privSel}</div>`;
+  }).join('');
+
+  bindColorPickers(locationEditorFields);
+}
+
+function readLocationEditorValues(base) {
+  const updated = { ...base };
+  locationFieldSchema.forEach((field) => {
+    const el = document.getElementById(`locationEdit_${field.key}`);
+    if (!el) return;
+    const value = (el.value || '').trim();
+    updated[field.key] = value || (base[field.key] ?? 'Not set');
+  });
+  updated.fieldPrivacy = readFieldPrivacy(locationFieldSchema, 'locationEdit', base);
+  return updated;
+}
+
+function renderLocationProfile(profile) {
+  if (!locationProfile || !locationProfileGrid) return;
+  const photo = profile.profilePhoto || 'L';
+  applyPhotoStyle(locationPhoto, photo, profile.name?.[0] || 'L', profile.color || '#6c63ff');
+  applyBannerStyle(locationBanner, profile.banner, profile.color || '#6c63ff', '--headmate-color');
+  locationName.textContent = profile.name;
+  locationMeta.textContent = `${profile.type || 'Other'} • ${profile.connectedLocations || 'No linked locations'}`;
+
+  const fpL = profile.fieldPrivacy || {};
+  const viewerLevelL = getViewerTrustLevel();
+  const baseLocationFields = locationFieldSchema
+    .filter((field) => field.key !== 'customFields' && canViewField(fpL[field.key] || 'public', viewerLevelL))
+    .map((field) => {
+      const value = renderProfileFieldValue('location', field, profile);
+      const badge = privacyBadge(fpL[field.key]);
+      return `<article class="headmate-field"><span class="headmate-field-label">${escapeHtml(field.label)}${badge}</span><div class="headmate-field-value">${value}</div></article>`;
+    });
+  const locationCustomFields = canViewField(fpL.customFields || 'public', viewerLevelL)
+    ? renderCustomFieldArticles(profile, fpL.customFields || 'public')
+    : [];
+  locationProfileGrid.innerHTML = baseLocationFields.concat(locationCustomFields).join('');
+
+  renderSublocationList(profile);
+  renderLocationMap(selectedLocationKey);
+  locationProfile.hidden = false;
+}
+
+function getLocationLinkKeys(profile) {
+  const textLinks = String(profile?.connectedLocations || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name && !['not set', 'none', 'n/a'].includes(name.toLowerCase()))
+    .map((name) => findLocationKeyByName(name))
+    .filter(Boolean);
+
+  const sublocationKeys = (profile?.sublocations || []).filter((key) => locationProfiles[key]);
+  return Array.from(new Set([...textLinks, ...sublocationKeys]));
+}
+
+function renderLocationMap(activeKey = selectedLocationKey) {
+  if (!locationMapCanvas) return;
+
+  const entries = Object.entries(locationProfiles);
+  if (!entries.length) {
+    locationMapCanvas.innerHTML = '<div class="headmate-hint" style="padding:14px">Add locations to generate the innerworld map.</div>';
+    return;
+  }
+
+  const centerKey = locationProfiles[activeKey] ? activeKey : entries[0][0];
+  const centerProfile = locationProfiles[centerKey];
+  const width = Math.max(760, locationMapCanvas.clientWidth || 760);
+  const height = 420;
+  const centerX = width * 0.23;
+  const centerY = height * 0.5;
+
+  const connectedKeys = String(centerProfile?.connectedLocations || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name && !['not set', 'none', 'n/a'].includes(name.toLowerCase()))
+    .map((name) => findLocationKeyByName(name))
+    .filter(Boolean);
+  const sublocationKeys = (centerProfile?.sublocations || []).filter((key) => locationProfiles[key]);
+  const relatedSet = new Set([...connectedKeys, ...sublocationKeys]);
+  const nearbyKeys = entries.map(([key]) => key).filter((key) => key !== centerKey && !relatedSet.has(key));
+
+  const layoutColumn = (keys, x, startY, endY) => keys.map((key, index) => {
+    const y = keys.length <= 1 ? (startY + endY) / 2 : startY + ((endY - startY) * index) / (keys.length - 1);
+    return {
+      key,
+      label: locationProfiles[key]?.name || key,
+      x,
+      y,
+      color: locationProfiles[key]?.color || '#6c63ff'
+    };
+  });
+
+  const connectedNodes = layoutColumn(connectedKeys, width * 0.62, 86, height * 0.36);
+  const sublocationNodes = layoutColumn(sublocationKeys, width * 0.62, height * 0.60, height * 0.84);
+  const nearbyNodes = layoutColumn(nearbyKeys, width * 0.86, 90, height * 0.82);
+
+  const buildNode = (node, radius, extraClass = '') => {
+    const shortLabel = node.label.length > 18 ? `${node.label.slice(0, 17)}…` : node.label;
+    return `
+      <g class="location-map-node ${extraClass}" data-map-location-key="${node.key}" tabindex="0">
+        <circle cx="${node.x}" cy="${node.y}" r="${radius}" fill="${escapeHtml(node.color)}"></circle>
+        <text class="location-map-node-label" x="${node.x}" y="${node.y + radius + 16}">${escapeHtml(shortLabel)}</text>
+      </g>
+    `;
+  };
+
+  const edgeMarkup = [
+    ...connectedNodes.map((node) => `
+      <path class="location-map-edge" d="M ${centerX + 42} ${centerY - 8} C ${centerX + 120} ${centerY - 8}, ${node.x - 110} ${node.y}, ${node.x - 34} ${node.y}" />
+    `),
+    ...sublocationNodes.map((node) => `
+      <path class="location-map-edge location-map-edge--sub" d="M ${centerX + 42} ${centerY + 12} C ${centerX + 120} ${centerY + 12}, ${node.x - 110} ${node.y}, ${node.x - 34} ${node.y}" />
+    `)
+  ].join('');
+
+  const subtitleParts = [];
+  subtitleParts.push(`${connectedKeys.length} connected location${connectedKeys.length === 1 ? '' : 's'}`);
+  subtitleParts.push(`${sublocationKeys.length} sublocation${sublocationKeys.length === 1 ? '' : 's'}`);
+  if (nearbyKeys.length) subtitleParts.push(`${nearbyKeys.length} nearby saved`);
+
+  locationMapCanvas.innerHTML = `
+    <svg class="partners-diagram-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="Innerworld location map">
+      <text class="location-map-section-label" x="${centerX - 20}" y="34">Focused Location</text>
+      ${connectedNodes.length ? `<text class="location-map-section-label" x="${width * 0.52}" y="34">Connected Locations</text>` : ''}
+      ${sublocationNodes.length ? `<text class="location-map-section-label" x="${width * 0.52}" y="${height * 0.53}">Sublocations</text>` : ''}
+      ${nearbyNodes.length ? `<text class="location-map-section-label" x="${width * 0.80}" y="34">Nearby Saved Locations</text>` : ''}
+      ${edgeMarkup}
+      ${buildNode({ key: centerKey, label: centerProfile.name, x: centerX, y: centerY, color: centerProfile.color || '#6c63ff' }, 34, 'selected')}
+      ${connectedNodes.map((node) => buildNode(node, 26, 'linked')).join('')}
+      ${sublocationNodes.map((node) => buildNode(node, 24, 'linked sublocation')).join('')}
+      ${nearbyNodes.map((node) => buildNode(node, 20, 'nearby')).join('')}
+    </svg>
+    <div class="location-map-legend">
+      <strong>Focused location:</strong> ${escapeHtml(centerProfile.name)}
+      <span>${escapeHtml(subtitleParts.join(' • '))}</span>
+    </div>
+  `;
+}
+
+function renderLocationsTable(filterValue = '') {
+  if (!locationsTableBody) return;
+  const entries = Object.entries(locationProfiles);
+  const query = filterValue.trim().toLowerCase();
+  const filtered = query
+    ? entries.filter(([, profile]) =>
+      profile.name.toLowerCase().includes(query) ||
+      (profile.type || '').toLowerCase().includes(query) ||
+      (profile.tags || '').toLowerCase().includes(query)
+    )
+    : entries;
+
+  locationsTableBody.innerHTML = filtered.length
+    ? filtered.map(([key, profile], index) => `
+      <tr data-location="${key}" class="${selectedLocationKey === key ? 'selected' : ''}">
+        <td>#${String(index + 1).padStart(3, '0')}</td>
+        <td>${escapeHtml(profile.name)}</td>
+        <td>${escapeHtml(profile.type || 'Other')}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="3">No locations found.</td></tr>';
+
+  if (selectedLocationKey && locationProfiles[selectedLocationKey]) {
+    renderLocationProfile(locationProfiles[selectedLocationKey]);
+  } else {
+    if (locationProfile) locationProfile.hidden = true;
+    if (locationEditor) locationEditor.hidden = true;
+    if (saveLocationBtn) saveLocationBtn.disabled = true;
+    renderLocationMap(selectedLocationKey);
+  }
+}
+
+if (locationsTableBody) {
+  locationsTableBody.addEventListener('click', (event) => {
+    const row = event.target.closest('tr[data-location]');
+    if (!row) return;
+    const key = row.dataset.location;
+    const profile = locationProfiles[key];
+    if (!profile) return;
+
+    document.querySelectorAll('#locationsTableBody tr[data-location]').forEach((r) => r.classList.remove('selected'));
+    row.classList.add('selected');
+    selectedLocationKey = key;
+    creatingLocation = false;
+    if (saveLocationBtn) saveLocationBtn.disabled = true;
+    if (locationEditor) locationEditor.hidden = true;
+    if (sublocationLinkPicker) sublocationLinkPicker.hidden = true;
+    renderLocationProfile(profile);
+  });
+}
+
+if (locationsSearch) {
+  locationsSearch.addEventListener('input', () => renderLocationsTable(locationsSearch.value));
+}
+
+if (addLocationBtn) {
+  addLocationBtn.addEventListener('click', () => {
+    creatingLocation = true;
+    selectedLocationKey = null;
+    const defaultName = `Location ${Object.keys(locationProfiles).length + 1}`;
+    const seed = createDefaultLocation(defaultName);
+    renderLocationProfile(seed);
+    renderLocationEditorFields(seed);
+    if (saveLocationBtn) saveLocationBtn.disabled = false;
+    if (locationSublocationList) locationSublocationList.innerHTML = '';
+    if (sublocationLinkPicker) sublocationLinkPicker.hidden = true;
+    if (locationEditor) {
+      locationEditor.hidden = false;
+      locationEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (addLocationFromTemplateBtn) {
+  addLocationFromTemplateBtn.addEventListener('click', () => {
+    const template = pickTemplateForTarget('location');
+    if (!template) return;
+    creatingLocation = true;
+    selectedLocationKey = null;
+    const baseName = (template.name || '').trim() || `Location ${Object.keys(locationProfiles).length + 1}`;
+    const seed = {
+      ...createDefaultLocation(baseName),
+      name: baseName,
+      type: template.category || 'Other',
+      description: template.description || 'Not set',
+      tags: template.category || 'Not set',
+      customFields: template.defaultContent || 'Not set',
+      associatedAlters: template.defaultContent || 'Not set',
+      banner: template.banner || `${baseName} Banner`,
+      color: template.color || '#6c63ff',
+      profilePhoto: baseName[0]?.toUpperCase() || 'L'
+    };
+    renderLocationProfile(seed);
+    renderLocationEditorFields(seed);
+    if (saveLocationBtn) saveLocationBtn.disabled = false;
+    if (locationSublocationList) locationSublocationList.innerHTML = '';
+    if (sublocationLinkPicker) sublocationLinkPicker.hidden = true;
+    if (locationEditor) {
+      locationEditor.hidden = false;
+      locationEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (editLocationBtn) {
+  editLocationBtn.addEventListener('click', () => {
+    if (!selectedLocationKey || !locationProfiles[selectedLocationKey]) {
+      safeAlert('Select a location first.');
+      return;
+    }
+    creatingLocation = false;
+    renderLocationEditorFields(locationProfiles[selectedLocationKey]);
+    if (saveLocationBtn) saveLocationBtn.disabled = false;
+    if (locationEditor) {
+      locationEditor.hidden = false;
+      locationEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (saveLocationBtn) {
+  saveLocationBtn.addEventListener('click', () => {
+    const base = creatingLocation ? createDefaultLocation('Location') : locationProfiles[selectedLocationKey];
+    if (!base) return;
+    const updated = readLocationEditorValues(base);
+    const name = (updated.name || '').trim();
+    if (!name) {
+      safeAlert('Location name is required.');
+      return;
+    }
+
+    if (creatingLocation) {
+      const baseKey = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `location-${Date.now()}`;
+      let key = baseKey;
+      let suffix = 2;
+      while (locationProfiles[key]) {
+        key = `${baseKey}-${suffix}`;
+        suffix += 1;
+      }
+      locationProfiles[key] = { ...updated, sublocations: updated.sublocations || [] };
+      selectedLocationKey = key;
+      creatingLocation = false;
+    } else {
+      locationProfiles[selectedLocationKey] = {
+        ...updated,
+        sublocations: locationProfiles[selectedLocationKey].sublocations || []
+      };
+    }
+
+    if (locationEditor) locationEditor.hidden = true;
+    if (saveLocationBtn) saveLocationBtn.disabled = true;
+    renderLocationsTable(locationsSearch?.value || '');
+  });
+}
+
+if (deleteLocationBtn) {
+  deleteLocationBtn.addEventListener('click', () => {
+    if (!selectedLocationKey || !locationProfiles[selectedLocationKey]) {
+      safeAlert('Select a location first.');
+      return;
+    }
+    if (!safeConfirm(`Delete location "${locationProfiles[selectedLocationKey].name}"?`)) return;
+    Object.values(locationProfiles).forEach((profile) => {
+      if (!profile.sublocations) return;
+      profile.sublocations = profile.sublocations.filter((key) => key !== selectedLocationKey);
+    });
+    delete locationProfiles[selectedLocationKey];
+    selectedLocationKey = null;
+    creatingLocation = false;
+    if (locationEditor) locationEditor.hidden = true;
+    if (locationProfile) locationProfile.hidden = true;
+    if (saveLocationBtn) saveLocationBtn.disabled = true;
+    renderLocationsTable(locationsSearch?.value || '');
+  });
+}
+
+if (linkSublocationBtn) {
+  linkSublocationBtn.addEventListener('click', () => {
+    if (!selectedLocationKey || !locationProfiles[selectedLocationKey]) return;
+    const profile = locationProfiles[selectedLocationKey];
+    const available = Object.entries(locationProfiles).filter(([key]) => {
+      if (key === selectedLocationKey) return false;
+      return !(profile.sublocations || []).includes(key);
+    });
+    if (!available.length) {
+      safeAlert('No available locations to link as sublocations.');
+      return;
+    }
+    sublocationLinkSelect.innerHTML = available
+      .map(([key, location]) => `<option value="${key}">${escapeHtml(location.name)}</option>`)
+      .join('');
+    sublocationLinkPicker.hidden = false;
+  });
+}
+
+if (sublocationLinkConfirmBtn) {
+  sublocationLinkConfirmBtn.addEventListener('click', () => {
+    if (!selectedLocationKey || !locationProfiles[selectedLocationKey]) return;
+    const selectedKey = sublocationLinkSelect.value;
+    if (!selectedKey) return;
+    const profile = locationProfiles[selectedLocationKey];
+    if (!profile.sublocations) profile.sublocations = [];
+    if (!profile.sublocations.includes(selectedKey)) profile.sublocations.push(selectedKey);
+    sublocationLinkPicker.hidden = true;
+    renderLocationProfile(profile);
+  });
+}
+
+if (sublocationLinkCancelBtn) {
+  sublocationLinkCancelBtn.addEventListener('click', () => {
+    if (sublocationLinkPicker) sublocationLinkPicker.hidden = true;
+  });
+}
+
+if (locationSublocationList) {
+  locationSublocationList.addEventListener('click', (event) => {
+    const unlinkButton = event.target.closest('[data-unlink-sublocation-key]');
+    if (unlinkButton) {
+      if (!selectedLocationKey || !locationProfiles[selectedLocationKey]) return;
+      const unlinkKey = unlinkButton.dataset.unlinkSublocationKey;
+      if (!unlinkKey) return;
+      const profile = locationProfiles[selectedLocationKey];
+      profile.sublocations = (profile.sublocations || []).filter((key) => key !== unlinkKey);
+      renderLocationProfile(profile);
+      return;
+    }
+
+    const card = event.target.closest('[data-sublocation-key]');
+    if (!card) return;
+    openProfileFromLink('notifications', card.dataset.sublocationKey);
+  });
+}
+
+if (linkLocationProfileBtn) {
+  linkLocationProfileBtn.addEventListener('click', () => {
+    if (!selectedLocationKey || !locationProfiles[selectedLocationKey]) {
+      safeAlert('Select a location first.');
+      return;
+    }
+    const profile = locationProfiles[selectedLocationKey];
+    if (addProfileLinkToRecord(profile, 'Headmate')) {
+      renderLocationsTable(locationsSearch?.value || '');
+      renderLocationProfile(profile);
+    }
+  });
+}
+
+if (refreshLocationMapBtn) {
+  refreshLocationMapBtn.addEventListener('click', () => renderLocationMap(selectedLocationKey));
+}
+
+if (locationMapCanvas) {
+  locationMapCanvas.addEventListener('click', (event) => {
+    const node = event.target.closest('[data-map-location-key]');
+    if (!node) return;
+    openProfileFromLink('notifications', node.dataset.mapLocationKey);
+  });
+}
+
+renderLocationsTable();
+
+// =====================
+// Subsystems: Per-user subsystem management
+// =====================
+const subsystemsByUser = {};
+let selectedSubsystemKey = null;
+let creatingSubsystem = false;
+
+const subsystemsGrid = document.getElementById('subsystemsGrid');
+const subsystemProfile = document.getElementById('subsystemProfile');
+const subsystemBanner = document.getElementById('subsystemBanner');
+const subsystemPhoto = document.getElementById('subsystemPhoto');
+const subsystemName = document.getElementById('subsystemName');
+const subsystemMeta = document.getElementById('subsystemMeta');
+const subsystemProfileGrid = document.getElementById('subsystemProfileGrid');
+const addSubsystemBtn = document.getElementById('addSubsystemBtn');
+const addSubsystemFromTemplateBtn = document.getElementById('addSubsystemFromTemplateBtn');
+const editSubsystemBtn = document.getElementById('editSubsystemBtn');
+const linkSubsystemProfileBtn = document.getElementById('linkSubsystemProfileBtn');
+const saveSubsystemBtn = document.getElementById('saveSubsystemBtn');
+const deleteSubsystemBtn = document.getElementById('deleteSubsystemBtn');
+const subsystemEditor = document.getElementById('subsystemEditor');
+const subsystemEditorFields = document.getElementById('subsystemEditorFields');
+const subsystemHub = document.getElementById('subsystemHub');
+const subsystemHubList = document.getElementById('subsystemHubList');
+const linkHeadmateBtn = document.getElementById('linkHeadmateBtn');
+const subsystemLinkPicker = document.getElementById('subsystemLinkPicker');
+const subsystemLinkSelect = document.getElementById('subsystemLinkSelect');
+const subsystemLinkConfirmBtn = document.getElementById('subsystemLinkConfirmBtn');
+const subsystemLinkCancelBtn = document.getElementById('subsystemLinkCancelBtn');
+
+const subsystemFieldSchema = [
+  { key: 'name', label: 'Name' },
+  { key: 'profilePhoto', label: 'Profile photo' },
+  { key: 'banner', label: 'Banner' },
+  { key: 'color', label: 'Color' },
+  { key: 'description', label: 'Description', type: 'textarea' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'customFields', label: 'Custom fields', type: 'textarea' },
+  { key: 'linkedProfiles', label: 'Linked profiles' }
+];
+
+function ensureSubsystemStore(userName) {
+  if (!subsystemsByUser[userName]) subsystemsByUser[userName] = {};
+  return subsystemsByUser[userName];
+}
+
+function getActiveSubsystems() {
+  return ensureSubsystemStore(getActiveUserName());
+}
+
+function createDefaultSubsystem(name) {
+  const initial = name[0]?.toUpperCase() || 'S';
+  const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  return {
+    name,
+    profilePhoto: initial,
+    banner: `${name} Banner`,
+    color,
+    description: 'No description set.',
+    tags: 'Not set',
+    customFields: 'Not set',
+    linkedProfiles: 'Not set',
+    linkedHeadmates: []
+  };
+}
+
+function renderSubsystemEditorFields(subsystem) {
+  if (!subsystemEditorFields) return;
+  const fp = subsystem.fieldPrivacy || {};
+  subsystemEditorFields.innerHTML = subsystemFieldSchema.map((field) => {
+    const id = `subsystemEdit_${field.key}`;
+    const safeValue = String(subsystem[field.key] ?? '');
+    const privSel = renderPrivacySelect(`priv_subsystemEdit_${field.key}`, fp[field.key] || 'public');
+    const inputHtml = renderFieldInput(field, id, safeValue);
+    return `<div class="editor-field-row">${inputHtml}${privSel}</div>`;
+  }).join('');
+
+  bindColorPickers(subsystemEditorFields);
+}
+
+function readSubsystemEditorValues(base) {
+  const updated = { ...base };
+  subsystemFieldSchema.forEach((field) => {
+    const el = document.getElementById(`subsystemEdit_${field.key}`);
+    if (!el) return;
+    updated[field.key] = el.value.trim() || (base[field.key] ?? '');
+  });
+  updated.fieldPrivacy = readFieldPrivacy(subsystemFieldSchema, 'subsystemEdit', base);
+  return updated;
+}
+
+function renderSubsystemHubList(subsystem) {
+  if (!subsystemHubList) return;
+  const activeProfiles = getActiveHeadmateProfiles();
+  const linked = subsystem.linkedHeadmates || [];
+  if (!linked.length) {
+    subsystemHubList.innerHTML = `<p class="headmate-hint" style="margin:8px 0">No ${escapeHtml(getTermLabel('headmates').toLowerCase())} linked yet. Use + Link ${escapeHtml(getSingularTerm('headmates'))} to add some.</p>`;
+    return;
+  }
+  subsystemHubList.innerHTML = linked.map((key) => {
+    const h = activeProfiles[key];
+    if (!h) return '';
+    return `
+      <div class="subsystem-hub-member" data-hub-key="${key}">
+        ${renderAvatarMarkup(h.profilePhoto || h.name?.[0]?.toUpperCase() || 'H', h.name?.[0]?.toUpperCase() || 'H', h.color || '#6c63ff', 'sm')}
+        <div class="subsystem-hub-member-info">
+          <strong>${escapeHtml(h.name)}</strong>
+          <span>${escapeHtml(h.mainRole || 'No role')}</span>
+        </div>
+        <button class="btn-sm subsystem-unlink-btn" type="button" data-unlink-key="${key}" title="Unlink">&#10005;</button>
+      </div>
+    `;
+  }).filter(Boolean).join('');
+}
+
+function renderSubsystemProfile(key) {
+  const subsystems = getActiveSubsystems();
+  const subsystem = subsystems[key];
+  if (!subsystem || !subsystemProfile) return;
+
+  const photo = subsystem.profilePhoto || 'S';
+  applyPhotoStyle(subsystemPhoto, photo, subsystem.name?.[0] || 'S', subsystem.color || '#6c63ff');
+  applyBannerStyle(subsystemBanner, subsystem.banner, subsystem.color || '#6c63ff', '--headmate-color');
+  subsystemName.textContent = subsystem.name;
+  const count = (subsystem.linkedHeadmates || []).length;
+  subsystemMeta.textContent = `${count} ${getTermCountLabel('headmates', count).toLowerCase()} linked`;
+
+  const fpS = subsystem.fieldPrivacy || {};
+  const viewerLevelS = getViewerTrustLevel();
+  const baseSubsystemFields = subsystemFieldSchema
+    .filter((field) => field.key !== 'customFields' && canViewField(fpS[field.key] || 'public', viewerLevelS))
+    .map((field) => {
+      const value = renderProfileFieldValue('subsystem', field, subsystem);
+      const badge = privacyBadge(fpS[field.key]);
+      return `<article class="headmate-field"><span class="headmate-field-label">${escapeHtml(field.label)}${badge}</span><div class="headmate-field-value">${value}</div></article>`;
+    });
+  const subsystemCustomFields = canViewField(fpS.customFields || 'public', viewerLevelS)
+    ? renderCustomFieldArticles(subsystem, fpS.customFields || 'public')
+    : [];
+  subsystemProfileGrid.innerHTML = baseSubsystemFields.concat(subsystemCustomFields).join('');
+
+  subsystemProfile.hidden = false;
+  renderSubsystemHubList(subsystem);
+}
+
+function renderSubsystemsGrid() {
+  if (!subsystemsGrid) return;
+  const subsystems = getActiveSubsystems();
+  const entries = Object.entries(subsystems);
+  if (!entries.length) {
+    subsystemsGrid.innerHTML = '<p class="headmate-hint">No subsystems yet. Use + Add Subsystem to create one.</p>';
+    return;
+  }
+  subsystemsGrid.innerHTML = entries.map(([key, sub]) => {
+    const photo = sub.profilePhoto || 'S';
+    const hasPhotoUrl = isMediaUrl(photo);
+    const banner = sub.banner || '';
+    const hasBannerUrl = isMediaUrl(banner);
+    const photoStyle = hasPhotoUrl
+      ? `style="background-image:url('${escapeCssUrl(photo)}'); color:transparent; background-color:${sub.color}; background-size:cover; background-position:center; background-repeat:no-repeat;"`
+      : `style="background-color:${sub.color};"`;
+    const bannerStyle = hasBannerUrl
+      ? `style="--profile-color:${sub.color}; background-image:linear-gradient(120deg, rgba(0,0,0,0.38), rgba(0,0,0,0.12)), url('${escapeCssUrl(banner)}'); background-size:cover; background-position:center; background-repeat:no-repeat;"`
+      : `style="--profile-color:${sub.color}"`;
+    const count = (sub.linkedHeadmates || []).length;
+    const isSelected = selectedSubsystemKey === key;
+    return `
+      <article class="system-profile-card subsystem-card ${isSelected ? 'selected' : ''}" data-subsystem-key="${key}">
+        <div class="system-profile-banner" ${bannerStyle}></div>
+        <div class="system-profile-content">
+          <div class="system-profile-photo" ${photoStyle}>${hasPhotoUrl ? '' : escapeHtml(photo)}</div>
+          <div class="system-profile-title">
+            <h4>${escapeHtml(sub.name)}</h4>
+            <div class="system-profile-description">${renderMarkdown(sub.description || '')}</div>
+          </div>
+          <div class="system-profile-field"><strong>Tags</strong><span>${escapeHtml(sub.tags || 'Not set')}</span></div>
+          <div class="system-profile-field"><strong>${escapeHtml(getTermLabel('headmates'))}</strong><span>${count} linked</span></div>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
+if (subsystemsGrid) {
+  subsystemsGrid.addEventListener('click', (e) => {
+    const card = e.target.closest('[data-subsystem-key]');
+    if (!card) return;
+    const key = card.dataset.subsystemKey;
+    const subsystems = getActiveSubsystems();
+    if (!subsystems[key]) return;
+    selectedSubsystemKey = key;
+    creatingSubsystem = false;
+    if (saveSubsystemBtn) saveSubsystemBtn.disabled = true;
+    if (subsystemEditor) subsystemEditor.hidden = true;
+    if (subsystemLinkPicker) subsystemLinkPicker.hidden = true;
+    renderSubsystemsGrid();
+    renderSubsystemProfile(key);
+    subsystemProfile.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (addSubsystemBtn) {
+  addSubsystemBtn.addEventListener('click', () => {
+    creatingSubsystem = true;
+    selectedSubsystemKey = null;
+    const defaultName = `Subsystem ${Object.keys(getActiveSubsystems()).length + 1}`;
+    const seed = createDefaultSubsystem(defaultName);
+    renderSubsystemEditorFields(seed);
+    subsystemPhoto.textContent = seed.profilePhoto;
+    subsystemPhoto.style.backgroundImage = '';
+    subsystemPhoto.style.color = '';
+    subsystemBanner.style.setProperty('--headmate-color', seed.color);
+    subsystemName.textContent = seed.name;
+    subsystemMeta.textContent = '0 headmates linked';
+    subsystemProfileGrid.innerHTML = '';
+    if (subsystemHubList) subsystemHubList.innerHTML = '';
+    if (subsystemLinkPicker) subsystemLinkPicker.hidden = true;
+    if (saveSubsystemBtn) saveSubsystemBtn.disabled = false;
+    if (subsystemEditor) subsystemEditor.hidden = false;
+    subsystemProfile.hidden = false;
+    subsystemProfile.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (addSubsystemFromTemplateBtn) {
+  addSubsystemFromTemplateBtn.addEventListener('click', () => {
+    const template = pickTemplateForTarget('subsystem');
+    if (!template) return;
+    creatingSubsystem = true;
+    selectedSubsystemKey = null;
+    const baseName = (template.name || '').trim() || `Subsystem ${Object.keys(getActiveSubsystems()).length + 1}`;
+    const seed = {
+      ...createDefaultSubsystem(baseName),
+      name: baseName,
+      description: template.description || 'No description set.',
+      tags: template.category || 'Not set',
+      customFields: template.defaultContent || 'Not set',
+      banner: template.banner || `${baseName} Banner`,
+      color: template.color || '#6c63ff',
+      profilePhoto: baseName[0]?.toUpperCase() || 'S'
+    };
+    renderSubsystemEditorFields(seed);
+    subsystemPhoto.textContent = seed.profilePhoto;
+    subsystemPhoto.style.backgroundImage = '';
+    subsystemPhoto.style.color = '';
+    subsystemBanner.style.setProperty('--headmate-color', seed.color);
+    subsystemName.textContent = seed.name;
+    subsystemMeta.textContent = '0 headmates linked';
+    subsystemProfileGrid.innerHTML = '';
+    if (subsystemHubList) subsystemHubList.innerHTML = '';
+    if (subsystemLinkPicker) subsystemLinkPicker.hidden = true;
+    if (saveSubsystemBtn) saveSubsystemBtn.disabled = false;
+    if (subsystemEditor) subsystemEditor.hidden = false;
+    subsystemProfile.hidden = false;
+    subsystemProfile.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (editSubsystemBtn) {
+  editSubsystemBtn.addEventListener('click', () => {
+    if (!selectedSubsystemKey) { safeAlert('Select a subsystem first.'); return; }
+    const subsystems = getActiveSubsystems();
+    if (!subsystems[selectedSubsystemKey]) return;
+    creatingSubsystem = false;
+    renderSubsystemEditorFields(subsystems[selectedSubsystemKey]);
+    if (saveSubsystemBtn) saveSubsystemBtn.disabled = false;
+    if (subsystemEditor) {
+      subsystemEditor.hidden = false;
+      subsystemEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (saveSubsystemBtn) {
+  saveSubsystemBtn.addEventListener('click', () => {
+    const subsystems = getActiveSubsystems();
+    const base = creatingSubsystem
+      ? createDefaultSubsystem('New Subsystem')
+      : subsystems[selectedSubsystemKey];
+    if (!base) return;
+    const updated = readSubsystemEditorValues(base);
+    const name = (updated.name || '').trim();
+    if (!name) { safeAlert('Name is required.'); return; }
+
+    if (creatingSubsystem) {
+      const baseKey = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `sub-${Date.now()}`;
+      let key = baseKey;
+      let suffix = 2;
+      while (subsystems[key]) { key = `${baseKey}-${suffix}`; suffix++; }
+      subsystems[key] = { ...updated, linkedHeadmates: [] };
+      selectedSubsystemKey = key;
+      creatingSubsystem = false;
+    } else {
+      const existing = subsystems[selectedSubsystemKey];
+      subsystems[selectedSubsystemKey] = { ...updated, linkedHeadmates: existing.linkedHeadmates || [] };
+    }
+
+    if (subsystemEditor) subsystemEditor.hidden = true;
+    if (saveSubsystemBtn) saveSubsystemBtn.disabled = true;
+    renderSubsystemsGrid();
+    renderSubsystemProfile(selectedSubsystemKey);
+  });
+}
+
+if (deleteSubsystemBtn) {
+  deleteSubsystemBtn.addEventListener('click', () => {
+    if (!selectedSubsystemKey) { safeAlert('Select a subsystem first.'); return; }
+    const subsystems = getActiveSubsystems();
+    if (!subsystems[selectedSubsystemKey]) return;
+    if (!safeConfirm(`Delete subsystem "${subsystems[selectedSubsystemKey].name}"?`)) return;
+    delete subsystems[selectedSubsystemKey];
+    selectedSubsystemKey = null;
+    if (subsystemProfile) subsystemProfile.hidden = true;
+    if (subsystemEditor) subsystemEditor.hidden = true;
+    if (saveSubsystemBtn) saveSubsystemBtn.disabled = true;
+    renderSubsystemsGrid();
+  });
+}
+
+if (linkHeadmateBtn) {
+  linkHeadmateBtn.addEventListener('click', () => {
+    if (!selectedSubsystemKey) return;
+    const subsystems = getActiveSubsystems();
+    const sub = subsystems[selectedSubsystemKey];
+    if (!sub) return;
+    const activeProfiles = getActiveHeadmateProfiles();
+    const available = Object.entries(activeProfiles).filter(
+      ([key]) => !(sub.linkedHeadmates || []).includes(key)
+    );
+    if (!available.length) {
+      safeAlert('All headmates are already linked, or there are no headmates for this user.');
+      return;
+    }
+    subsystemLinkSelect.innerHTML = available
+      .map(([key, h]) => `<option value="${key}">${escapeHtml(h.name)}</option>`)
+      .join('');
+    subsystemLinkPicker.hidden = false;
+  });
+}
+
+if (subsystemLinkConfirmBtn) {
+  subsystemLinkConfirmBtn.addEventListener('click', () => {
+    if (!selectedSubsystemKey) return;
+    const subsystems = getActiveSubsystems();
+    const sub = subsystems[selectedSubsystemKey];
+    if (!sub) return;
+    const key = subsystemLinkSelect.value;
+    if (!key) return;
+    if (!sub.linkedHeadmates) sub.linkedHeadmates = [];
+    if (!sub.linkedHeadmates.includes(key)) sub.linkedHeadmates.push(key);
+    subsystemLinkPicker.hidden = true;
+    const count = sub.linkedHeadmates.length;
+    subsystemMeta.textContent = `${count} headmate${count !== 1 ? 's' : ''} linked`;
+    renderSubsystemHubList(sub);
+    renderSubsystemsGrid();
+  });
+}
+
+if (subsystemLinkCancelBtn) {
+  subsystemLinkCancelBtn.addEventListener('click', () => {
+    if (subsystemLinkPicker) subsystemLinkPicker.hidden = true;
+  });
+}
+
+if (linkSubsystemProfileBtn) {
+  linkSubsystemProfileBtn.addEventListener('click', () => {
+    const subsystems = getActiveSubsystems();
+    if (!selectedSubsystemKey || !subsystems[selectedSubsystemKey]) {
+      safeAlert('Select a subsystem first.');
+      return;
+    }
+    const subsystem = subsystems[selectedSubsystemKey];
+    if (addProfileLinkToRecord(subsystem, 'Headmate')) {
+      renderSubsystemsGrid();
+      renderSubsystemProfile(selectedSubsystemKey);
+    }
+  });
+}
+
+if (subsystemHubList) {
+  subsystemHubList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.subsystem-unlink-btn');
+    if (btn) {
+      const key = btn.dataset.unlinkKey;
+      if (!key || !selectedSubsystemKey) return;
+      const subsystems = getActiveSubsystems();
+      const sub = subsystems[selectedSubsystemKey];
+      if (!sub) return;
+      if (!safeConfirm('Unlink this headmate from the subsystem?')) return;
+      sub.linkedHeadmates = (sub.linkedHeadmates || []).filter((k) => k !== key);
+      const count = sub.linkedHeadmates.length;
+      subsystemMeta.textContent = `${count} headmate${count !== 1 ? 's' : ''} linked`;
+      renderSubsystemHubList(sub);
+      renderSubsystemsGrid();
+      return;
+    }
+
+    const member = e.target.closest('[data-hub-key]');
+    if (!member) return;
+    openProfileFromLink('parts', member.dataset.hubKey);
+  });
+}
+
+renderSubsystemsGrid();
+
+// =====================
+// Items: Profile Manager
+// =====================
+const itemProfiles = {};
+let selectedItemKey = null;
+let creatingItem = false;
+
+const itemsTableBody = document.getElementById('itemsTableBody');
+const itemsSearch = document.getElementById('itemsSearch');
+const itemProfile = document.getElementById('itemProfile');
+const itemBanner = document.getElementById('itemBanner');
+const itemPhoto = document.getElementById('itemPhoto');
+const itemName = document.getElementById('itemName');
+const itemMeta = document.getElementById('itemMeta');
+const itemProfileGrid = document.getElementById('itemProfileGrid');
+const addItemBtn = document.getElementById('addItemBtn');
+const addItemFromTemplateBtn = document.getElementById('addItemFromTemplateBtn');
+const editItemBtn = document.getElementById('editItemBtn');
+const linkItemProfileBtn = document.getElementById('linkItemProfileBtn');
+const saveItemBtn = document.getElementById('saveItemBtn');
+const deleteItemBtn = document.getElementById('deleteItemBtn');
+const itemEditor = document.getElementById('itemEditor');
+const itemEditorFields = document.getElementById('itemEditorFields');
+
+const itemFieldSchema = [
+  { key: 'name', label: 'Name' },
+  { key: 'tag', label: 'Primary tag' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'customFields', label: 'Custom fields', type: 'textarea' },
+  { key: 'associatedAlters', label: 'Associated alters (comma separated)' },
+  { key: 'linkedProfiles', label: 'Linked profiles' },
+  { key: 'profilePhoto', label: 'Profile photo' },
+  { key: 'banner', label: 'Banner' },
+  { key: 'color', label: 'Color' }
+];
+
+function createDefaultItem(name) {
+  const initial = name[0]?.toUpperCase() || 'I';
+  const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  return {
+    name,
+    tag: 'Not set',
+    tags: 'Not set',
+    customFields: 'Not set',
+    associatedAlters: 'Not set',
+    linkedProfiles: 'Not set',
+    profilePhoto: initial,
+    banner: `${name} Banner`,
+    color
+  };
+}
+
+function renderItemEditorFields(profile) {
+  if (!itemEditorFields) return;
+  const fp = profile.fieldPrivacy || {};
+  itemEditorFields.innerHTML = itemFieldSchema.map((field) => {
+    const id = `itemEdit_${field.key}`;
+    const safeValue = String(profile[field.key] ?? '');
+    const privSel = renderPrivacySelect(`priv_itemEdit_${field.key}`, fp[field.key] || 'public');
+    return `<div class="editor-field-row">${renderFieldInput(field, id, safeValue)}${privSel}</div>`;
+  }).join('');
+
+  bindColorPickers(itemEditorFields);
+}
+
+function readItemEditorValues(base) {
+  const updated = { ...base };
+  itemFieldSchema.forEach((field) => {
+    const el = document.getElementById(`itemEdit_${field.key}`);
+    if (!el) return;
+    updated[field.key] = el.value.trim() || (base[field.key] ?? 'Not set');
+  });
+  updated.fieldPrivacy = readFieldPrivacy(itemFieldSchema, 'itemEdit', base);
+  return updated;
+}
+
+function renderItemProfile(profile) {
+  if (!itemProfile || !itemProfileGrid) return;
+  const photo = profile.profilePhoto || 'I';
+  applyPhotoStyle(itemPhoto, photo, profile.name?.[0] || 'I', profile.color || '#6c63ff');
+  applyBannerStyle(itemBanner, profile.banner, profile.color || '#6c63ff', '--headmate-color');
+  itemName.textContent = profile.name;
+  itemMeta.textContent = `${profile.tag || 'No tag'} • ${profile.associatedAlters || 'No alters'}`;
+
+  const fpI = profile.fieldPrivacy || {};
+  const viewerLevelI = getViewerTrustLevel();
+  const baseItemFields = itemFieldSchema
+    .filter((field) => field.key !== 'customFields' && canViewField(fpI[field.key] || 'public', viewerLevelI))
+    .map((field) => {
+      const value = renderProfileFieldValue('item', field, profile);
+      const badge = privacyBadge(fpI[field.key]);
+      return `<article class="headmate-field"><span class="headmate-field-label">${escapeHtml(field.label)}${badge}</span><div class="headmate-field-value">${value}</div></article>`;
+    });
+  const itemCustomFields = canViewField(fpI.customFields || 'public', viewerLevelI)
+    ? renderCustomFieldArticles(profile, fpI.customFields || 'public')
+    : [];
+  itemProfileGrid.innerHTML = baseItemFields.concat(itemCustomFields).join('');
+
+  itemProfile.hidden = false;
+}
+
+function renderItemsTable(filter) {
+  if (!itemsTableBody) return;
+  const entries = Object.entries(itemProfiles);
+  const q = (filter || '').toLowerCase().trim();
+  const filtered = q ? entries.filter(([, p]) => p.name.toLowerCase().includes(q) || (p.tag || '').toLowerCase().includes(q) || (p.tags || '').toLowerCase().includes(q)) : entries;
+
+  itemsTableBody.innerHTML = filtered.length
+    ? filtered.map(([key, p], i) => `
+        <tr data-item="${key}" class="${selectedItemKey === key ? 'selected' : ''}">
+          <td>#${String(i + 1).padStart(3, '0')}</td>
+          <td>${escapeHtml(p.name)}</td>
+          <td>${escapeHtml(p.tag || 'Not set')}</td>
+        </tr>
+      `).join('')
+    : '<tr><td colspan="3">No items yet.</td></tr>';
+
+  if (selectedItemKey && itemProfiles[selectedItemKey]) {
+    renderItemProfile(itemProfiles[selectedItemKey]);
+  } else {
+    if (itemProfile) itemProfile.hidden = true;
+    if (itemEditor) itemEditor.hidden = true;
+    if (saveItemBtn) saveItemBtn.disabled = true;
+  }
+}
+
+if (itemsTableBody) {
+  itemsTableBody.addEventListener('click', (e) => {
+    const row = e.target.closest('tr[data-item]');
+    if (!row) return;
+    const key = row.dataset.item;
+    const profile = itemProfiles[key];
+    if (!profile) return;
+    document.querySelectorAll('#itemsTableBody tr[data-item]').forEach((r) => r.classList.remove('selected'));
+    row.classList.add('selected');
+    selectedItemKey = key;
+    creatingItem = false;
+    if (saveItemBtn) saveItemBtn.disabled = true;
+    if (itemEditor) itemEditor.hidden = true;
+    renderItemProfile(profile);
+    itemProfile.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
+if (itemsSearch) {
+  itemsSearch.addEventListener('input', () => renderItemsTable(itemsSearch.value));
+}
+
+if (linkItemProfileBtn) {
+  linkItemProfileBtn.addEventListener('click', () => {
+    if (!selectedItemKey || !itemProfiles[selectedItemKey]) {
+      safeAlert('Select an item first.');
+      return;
+    }
+    const profile = itemProfiles[selectedItemKey];
+    if (addProfileLinkToRecord(profile, 'Headmate')) {
+      renderItemsTable(itemsSearch?.value || '');
+      renderItemProfile(profile);
+    }
+  });
+}
+
+if (addItemBtn) {
+  addItemBtn.addEventListener('click', () => {
+    creatingItem = true;
+    selectedItemKey = null;
+    const defaultName = `Item ${Object.keys(itemProfiles).length + 1}`;
+    const seed = createDefaultItem(defaultName);
+    renderItemProfile(seed);
+    renderItemEditorFields(seed);
+    if (saveItemBtn) saveItemBtn.disabled = false;
+    if (itemEditor) {
+      itemEditor.hidden = false;
+      itemEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (addItemFromTemplateBtn) {
+  addItemFromTemplateBtn.addEventListener('click', () => {
+    const template = pickTemplateForTarget('item');
+    if (!template) return;
+    creatingItem = true;
+    selectedItemKey = null;
+    const baseName = (template.name || '').trim() || `Item ${Object.keys(itemProfiles).length + 1}`;
+    const seed = {
+      ...createDefaultItem(baseName),
+      name: baseName,
+      tag: template.category || 'Custom',
+      tags: template.category || 'Not set',
+      customFields: template.defaultContent || 'Not set',
+      associatedAlters: template.defaultContent || 'Not set',
+      banner: template.banner || `${baseName} Banner`,
+      color: template.color || '#6c63ff',
+      profilePhoto: baseName[0]?.toUpperCase() || 'I'
+    };
+    renderItemProfile(seed);
+    renderItemEditorFields(seed);
+    if (saveItemBtn) saveItemBtn.disabled = false;
+    if (itemEditor) {
+      itemEditor.hidden = false;
+      itemEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (editItemBtn) {
+  editItemBtn.addEventListener('click', () => {
+    if (!selectedItemKey || !itemProfiles[selectedItemKey]) { safeAlert('Select an item first.'); return; }
+    creatingItem = false;
+    renderItemEditorFields(itemProfiles[selectedItemKey]);
+    if (saveItemBtn) saveItemBtn.disabled = false;
+    if (itemEditor) {
+      itemEditor.hidden = false;
+      itemEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (saveItemBtn) {
+  saveItemBtn.addEventListener('click', () => {
+    const base = creatingItem ? createDefaultItem('Item') : itemProfiles[selectedItemKey];
+    if (!base) return;
+    const updated = readItemEditorValues(base);
+    const name = (updated.name || '').trim();
+    if (!name) { safeAlert('Name is required.'); return; }
+
+    if (creatingItem) {
+      const baseKey = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `item-${Date.now()}`;
+      let key = baseKey;
+      let suffix = 2;
+      while (itemProfiles[key]) { key = `${baseKey}-${suffix}`; suffix++; }
+      itemProfiles[key] = updated;
+      selectedItemKey = key;
+      creatingItem = false;
+    } else {
+      itemProfiles[selectedItemKey] = updated;
+    }
+
+    if (itemEditor) itemEditor.hidden = true;
+    if (saveItemBtn) saveItemBtn.disabled = true;
+    renderItemsTable(itemsSearch?.value);
+  });
+}
+
+if (deleteItemBtn) {
+  deleteItemBtn.addEventListener('click', () => {
+    if (!selectedItemKey || !itemProfiles[selectedItemKey]) { safeAlert('Select an item first.'); return; }
+    if (!safeConfirm(`Delete item "${itemProfiles[selectedItemKey].name}"?`)) return;
+    delete itemProfiles[selectedItemKey];
+    selectedItemKey = null;
+    if (itemProfile) itemProfile.hidden = true;
+    if (itemEditor) itemEditor.hidden = true;
+    if (saveItemBtn) saveItemBtn.disabled = true;
+    renderItemsTable(itemsSearch?.value);
+  });
+}
+
+renderItemsTable();
+
+// Init chat sidebar on page load
+renderChatSidebar();
+
+// =====================
+// Health: Medication Tracker
+// =====================
+const medNameInput = document.getElementById('medNameInput');
+const medDosageInput = document.getElementById('medDosageInput');
+const medScheduleInput = document.getElementById('medScheduleInput');
+const addMedicationBtn = document.getElementById('addMedicationBtn');
+const medicationsTableBody = document.getElementById('medicationsTableBody');
+const medicationCheckinList = document.getElementById('medicationCheckinList');
+const clearMedicationLogBtn = document.getElementById('clearMedicationLogBtn');
+
+const medicationsByUser = {};
+const medicationCheckinsByUser = {};
+
+function ensureMedicationStore(userName) {
+  if (!medicationsByUser[userName]) medicationsByUser[userName] = [];
+  return medicationsByUser[userName];
+}
+
+function ensureMedicationCheckinStore(userName) {
+  if (!medicationCheckinsByUser[userName]) medicationCheckinsByUser[userName] = [];
+  return medicationCheckinsByUser[userName];
+}
+
+function formatTakenAt(ts) {
+  if (!ts) return 'Not taken yet';
+  const date = new Date(ts);
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function renderMedicationCheckinLog() {
+  if (!medicationCheckinList) return;
+  const checkins = ensureMedicationCheckinStore(getActiveUserName());
+
+  if (!checkins.length) {
+    medicationCheckinList.innerHTML = '<li class="med-checkin-empty">No check-ins yet.</li>';
+    return;
+  }
+
+  medicationCheckinList.innerHTML = [...checkins].reverse().map((entry) => `
+    <li class="med-checkin-item">
+      <div class="med-checkin-title">${escapeHtml(entry.medName)} <span>${escapeHtml(entry.dosage)}</span></div>
+      <div class="med-checkin-meta">${escapeHtml(entry.schedule)} • ${escapeHtml(formatTakenAt(entry.takenAt))}</div>
+    </li>
+  `).join('');
+}
+
+function renderMedicationTracker() {
+  if (!medicationsTableBody) return;
+  const meds = ensureMedicationStore(getActiveUserName());
+
+  if (!meds.length) {
+    medicationsTableBody.innerHTML = '<tr><td colspan="5">No medications added for this user yet.</td></tr>';
+    return;
+  }
+
+  medicationsTableBody.innerHTML = meds.map((med) => `
+    <tr data-med-id="${med.id}">
+      <td>${escapeHtml(med.name)}</td>
+      <td>${escapeHtml(med.dosage)}</td>
+      <td>${escapeHtml(med.schedule)}</td>
+      <td>${escapeHtml(formatTakenAt(med.lastTakenAt))}</td>
+      <td>
+        <button class="btn-sm" type="button" data-med-action="taken" data-med-id="${med.id}">Mark Taken</button>
+        <button class="btn-sm" type="button" data-med-action="delete" data-med-id="${med.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+
+  renderMedicationCheckinLog();
+}
+
+if (addMedicationBtn) {
+  addMedicationBtn.addEventListener('click', () => {
+    const name = (medNameInput?.value || '').trim();
+    const dosage = (medDosageInput?.value || '').trim();
+    const schedule = (medScheduleInput?.value || '').trim();
+
+    if (!name || !dosage || !schedule) {
+      safeAlert('Please fill in medication name, dosage, and schedule.');
+      return;
+    }
+
+    const meds = ensureMedicationStore(getActiveUserName());
+    meds.push({
+      id: `med-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      name,
+      dosage,
+      schedule,
+      lastTakenAt: null
+    });
+
+    medNameInput.value = '';
+    medDosageInput.value = '';
+    medScheduleInput.value = '';
+    renderMedicationTracker();
+  });
+}
+
+if (medicationsTableBody) {
+  medicationsTableBody.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-med-action]');
+    if (!button) return;
+
+    const action = button.dataset.medAction;
+    const medId = button.dataset.medId;
+    if (!medId) return;
+
+    const meds = ensureMedicationStore(getActiveUserName());
+    const index = meds.findIndex((med) => med.id === medId);
+    if (index < 0) return;
+
+    if (action === 'taken') {
+      const takenAt = Date.now();
+      meds[index].lastTakenAt = takenAt;
+      const checkins = ensureMedicationCheckinStore(getActiveUserName());
+      checkins.push({
+        id: `checkin-${takenAt}-${Math.floor(Math.random() * 10000)}`,
+        medId,
+        medName: meds[index].name,
+        dosage: meds[index].dosage,
+        schedule: meds[index].schedule,
+        takenAt
+      });
+      renderMedicationTracker();
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!safeConfirm(`Delete medication "${meds[index].name}"?`)) return;
+      meds.splice(index, 1);
+      renderMedicationTracker();
+    }
+  });
+}
+
+if (clearMedicationLogBtn) {
+  clearMedicationLogBtn.addEventListener('click', () => {
+    const checkins = ensureMedicationCheckinStore(getActiveUserName());
+    if (!checkins.length) return;
+    if (!safeConfirm('Clear medication check-in log for this user?')) return;
+    checkins.length = 0;
+    renderMedicationCheckinLog();
+  });
+}
+
+renderMedicationTracker();
+
+// =====================
+// Templates: Custom Template Manager
+// =====================
+const templatesSearch = document.getElementById('templatesSearch');
+const templatesTableBody = document.getElementById('templatesTableBody');
+const addTemplateBtn = document.getElementById('addTemplateBtn');
+const templateProfile = document.getElementById('templateProfile');
+const templateBanner = document.getElementById('templateBanner');
+const templatePhoto = document.getElementById('templatePhoto');
+const templateName = document.getElementById('templateName');
+const templateMeta = document.getElementById('templateMeta');
+const templateProfileGrid = document.getElementById('templateProfileGrid');
+const editTemplateBtn = document.getElementById('editTemplateBtn');
+const saveTemplateBtn = document.getElementById('saveTemplateBtn');
+const deleteTemplateBtn = document.getElementById('deleteTemplateBtn');
+const templateEditor = document.getElementById('templateEditor');
+const templateEditorFields = document.getElementById('templateEditorFields');
+
+const templateFieldSchema = [
+  { key: 'name', label: 'Name' },
+  { key: 'target', label: 'Target module (headmate/system/item/partner/subsystem/all)' },
+  { key: 'category', label: 'Category' },
+  { key: 'description', label: 'Description', type: 'textarea' },
+  { key: 'defaultContent', label: 'Default content', type: 'textarea' },
+  { key: 'banner', label: 'Banner' },
+  { key: 'color', label: 'Color' }
+];
+
+const customTemplates = {
+  report: {
+    name: 'Report Template',
+    target: 'all',
+    category: 'Reports',
+    description: 'Standard report layout with summary and action items.',
+    defaultContent: 'Summary:\nFindings:\nAction items:\nOwner:\nDue date:',
+    banner: 'Structured Report',
+    color: '#6c63ff'
+  },
+  journal: {
+    name: 'Journal Entry',
+    target: 'all',
+    category: 'Logging',
+    description: 'Daily journal entry with date, mood, and notes.',
+    defaultContent: 'Date:\nMood:\nContext:\nEntry:\nFollow-up:',
+    banner: 'Daily Reflection',
+    color: '#43d9ad'
+  }
+};
+
+let selectedTemplateKey = null;
+let creatingTemplate = false;
+
+function createDefaultTemplate(name) {
+  const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
+  const color = colors[Math.floor(Math.random() * colors.length)];
+  return {
+    name,
+    target: 'all',
+    category: 'Custom',
+    description: 'Not set',
+    defaultContent: 'Not set',
+    banner: `${name} Banner`,
+    color
+  };
+}
+
+function normalizeTemplateTarget(target) {
+  const value = String(target || '').trim().toLowerCase();
+  if (!value) return 'all';
+  if (value === 'headmates') return 'headmate';
+  if (value === 'systems') return 'system';
+  if (value === 'items') return 'item';
+  if (value === 'locations') return 'location';
+  if (value === 'partners') return 'partner';
+  if (value === 'subsystems') return 'subsystem';
+  if (value === 'general') return 'all';
+  return value;
+}
+
+function getTemplatesForTarget(target) {
+  const wanted = normalizeTemplateTarget(target);
+  return Object.entries(customTemplates).filter(([, template]) => {
+    const templateTarget = normalizeTemplateTarget(template.target || 'all');
+    return templateTarget === 'all' || templateTarget === wanted;
+  });
+}
+
+function pickTemplateForTarget(target) {
+  const matches = getTemplatesForTarget(target);
+  if (!matches.length) {
+    safeAlert(`No templates found for ${target}. Create one in Forms and set target to ${target} or all.`);
+    return null;
+  }
+
+  const promptText = matches
+    .map(([_, template], index) => `${index + 1}. ${template.name} [${template.category || 'Uncategorized'}]`)
+    .join('\n');
+
+  const response = safePrompt(`Choose a template for ${target} by number:\n${promptText}`, '1');
+  if (response === null || response === undefined) return null;
+  const index = Number(response);
+  if (!Number.isInteger(index) || index < 1 || index > matches.length) {
+    safeAlert('Invalid template selection.');
+    return null;
+  }
+
+  return matches[index - 1][1];
+}
+
+function renderTemplateEditorFields(profile) {
+  if (!templateEditorFields) return;
+  templateEditorFields.innerHTML = templateFieldSchema.map((field) => {
+    const id = `templateEdit_${field.key}`;
+    const safeValue = escapeHtml(String(profile[field.key] ?? ''));
+    if (field.type === 'textarea') {
+      return `<label>${field.label}<textarea class="setting-input" id="${id}">${safeValue}</textarea></label>`;
+    }
+    return `<label>${field.label}<input class="setting-input" id="${id}" type="text" value="${safeValue}" /></label>`;
+  }).join('');
+}
+
+function readTemplateEditorValues(baseProfile) {
+  const updated = { ...baseProfile };
+  templateFieldSchema.forEach((field) => {
+    const input = document.getElementById(`templateEdit_${field.key}`);
+    if (!input) return;
+    const value = (input.value || '').trim();
+    updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
+  });
+  return updated;
+}
+
+function renderTemplateProfile(profile) {
+  if (!templateProfile || !templateProfileGrid) return;
+
+  templatePhoto.textContent = (profile.name?.[0] || 'T').toUpperCase();
+  templateName.textContent = profile.name;
+  templateMeta.textContent = `${profile.target || 'all'} • ${profile.category || 'Uncategorized'}`;
+  templateBanner.style.setProperty('--headmate-color', profile.color || '#6c63ff');
+
+  templateProfileGrid.innerHTML = templateFieldSchema.map((field) => {
+    const rawValue = String(profile[field.key] ?? 'Not set');
+    const value = field.key === 'color' ? escapeHtml(rawValue) : renderMarkdown(rawValue);
+    return `<article class="headmate-field"><span class="headmate-field-label">${field.label}</span><div class="headmate-field-value">${value}</div></article>`;
+  }).join('');
+
+  templateProfile.hidden = false;
+}
+
+function renderTemplatesTable(filterValue = '') {
+  if (!templatesTableBody) return;
+
+  const entries = Object.entries(customTemplates);
+  const query = filterValue.trim().toLowerCase();
+  const filtered = query
+    ? entries.filter(([, profile]) =>
+      profile.name.toLowerCase().includes(query) ||
+      (profile.category || '').toLowerCase().includes(query) ||
+      (profile.target || '').toLowerCase().includes(query)
+    )
+    : entries;
+
+  templatesTableBody.innerHTML = filtered.length
+    ? filtered.map(([key, profile], index) => `
+      <tr data-template="${key}" class="${selectedTemplateKey === key ? 'selected' : ''}">
+        <td>#${String(index + 1).padStart(3, '0')}</td>
+        <td>${escapeHtml(profile.name)}</td>
+        <td>${escapeHtml(profile.target || 'all')}</td>
+        <td>${escapeHtml(profile.category || 'Not set')}</td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="4">No templates found.</td></tr>';
+
+  if (selectedTemplateKey && customTemplates[selectedTemplateKey]) {
+    renderTemplateProfile(customTemplates[selectedTemplateKey]);
+  } else {
+    if (templateProfile) templateProfile.hidden = true;
+    if (templateEditor) templateEditor.hidden = true;
+    if (saveTemplateBtn) saveTemplateBtn.disabled = true;
+  }
+}
+
+if (templatesTableBody) {
+  templatesTableBody.addEventListener('click', (event) => {
+    const row = event.target.closest('tr[data-template]');
+    if (!row) return;
+    const key = row.dataset.template;
+    const profile = customTemplates[key];
+    if (!profile) return;
+
+    document.querySelectorAll('#templatesTableBody tr[data-template]').forEach((r) => r.classList.remove('selected'));
+    row.classList.add('selected');
+    selectedTemplateKey = key;
+    creatingTemplate = false;
+    if (saveTemplateBtn) saveTemplateBtn.disabled = true;
+    if (templateEditor) templateEditor.hidden = true;
+    renderTemplateProfile(profile);
+  });
+}
+
+if (templatesSearch) {
+  templatesSearch.addEventListener('input', () => {
+    renderTemplatesTable(templatesSearch.value);
+  });
+}
+
+if (addTemplateBtn) {
+  addTemplateBtn.addEventListener('click', () => {
+    creatingTemplate = true;
+    selectedTemplateKey = null;
+    const defaultName = `Template ${Object.keys(customTemplates).length + 1}`;
+    const seed = createDefaultTemplate(defaultName);
+    renderTemplateProfile(seed);
+    renderTemplateEditorFields(seed);
+    if (saveTemplateBtn) saveTemplateBtn.disabled = false;
+    if (templateEditor) {
+      templateEditor.hidden = false;
+      templateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (editTemplateBtn) {
+  editTemplateBtn.addEventListener('click', () => {
+    if (!selectedTemplateKey || !customTemplates[selectedTemplateKey]) {
+      safeAlert('Select a template first.');
+      return;
+    }
+    creatingTemplate = false;
+    renderTemplateEditorFields(customTemplates[selectedTemplateKey]);
+    if (saveTemplateBtn) saveTemplateBtn.disabled = false;
+    if (templateEditor) {
+      templateEditor.hidden = false;
+      templateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+}
+
+if (saveTemplateBtn) {
+  saveTemplateBtn.addEventListener('click', () => {
+    const base = creatingTemplate
+      ? createDefaultTemplate('Template')
+      : customTemplates[selectedTemplateKey];
+    if (!base) return;
+
+    const updated = readTemplateEditorValues(base);
+    const name = (updated.name || '').trim();
+    if (!name) {
+      safeAlert('Template name is required.');
+      return;
+    }
+
+    if (creatingTemplate) {
+      const baseKey = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') || `template-${Date.now()}`;
+      let key = baseKey;
+      let suffix = 2;
+      while (customTemplates[key]) {
+        key = `${baseKey}-${suffix}`;
+        suffix += 1;
+      }
+      customTemplates[key] = updated;
+      selectedTemplateKey = key;
+      creatingTemplate = false;
+    } else {
+      customTemplates[selectedTemplateKey] = updated;
+    }
+
+    if (templateEditor) templateEditor.hidden = true;
+    if (saveTemplateBtn) saveTemplateBtn.disabled = true;
+    renderTemplatesTable(templatesSearch?.value || '');
+  });
+}
+
+if (deleteTemplateBtn) {
+  deleteTemplateBtn.addEventListener('click', () => {
+    if (!selectedTemplateKey || !customTemplates[selectedTemplateKey]) {
+      safeAlert('Select a template first.');
+      return;
+    }
+    const templateToDelete = customTemplates[selectedTemplateKey];
+    if (!safeConfirm(`Delete template "${templateToDelete.name}"?`)) return;
+    delete customTemplates[selectedTemplateKey];
+    selectedTemplateKey = null;
+    creatingTemplate = false;
+    if (templateEditor) templateEditor.hidden = true;
+    if (templateProfile) templateProfile.hidden = true;
+    if (saveTemplateBtn) saveTemplateBtn.disabled = true;
+    renderTemplatesTable(templatesSearch?.value || '');
+  });
+}
+
+renderTemplatesTable();
+
+// =====================
+// Journal: Log shortcuts with preset text
+// =====================
+const addJournalEntryBtn = document.getElementById('addJournalEntryBtn');
+const addLogShortcutBtn = document.getElementById('addLogShortcutBtn');
+const logShortcutEditor = document.getElementById('logShortcutEditor');
+const logShortcutLabelInput = document.getElementById('logShortcutLabelInput');
+const logShortcutModuleSelect = document.getElementById('logShortcutModuleSelect');
+const logShortcutTextInput = document.getElementById('logShortcutTextInput');
+const saveLogShortcutBtn = document.getElementById('saveLogShortcutBtn');
+const cancelLogShortcutBtn = document.getElementById('cancelLogShortcutBtn');
+const logShortcutsList = document.getElementById('logShortcutsList');
+const journalList = document.getElementById('journalList');
+const journalEmptyHint = document.getElementById('journalEmptyHint');
+const journalSearchInput = document.getElementById('journalSearchInput');
+const journalFilterSelect = document.getElementById('journalFilterSelect');
+const journalSortSelect = document.getElementById('journalSortSelect');
+
+const journalEntriesByUser = {};
+const journalShortcutsByUser = {};
+
+const logModules = [
+  'Overview',
+  'Headmates',
+  'System',
+  'Partners',
+  'Subsystems',
+  'Items',
+  'Inner Chat',
+  'Messages',
+  'Health',
+  'Rules',
+  'Media Library',
+  'Forms'
+];
+
+function ensureJournalEntryStore(userName) {
+  if (!journalEntriesByUser[userName]) journalEntriesByUser[userName] = [];
+  return journalEntriesByUser[userName];
+}
+
+function ensureJournalShortcutStore(userName) {
+  if (!journalShortcutsByUser[userName]) {
+    journalShortcutsByUser[userName] = [
+      {
+        id: `shortcut-${Date.now()}-overview`,
+        label: 'Daily System Check-In',
+        module: 'Overview',
+        presetText: 'Summary:\nMood/energy:\nMain events:\nNext steps:'
+      },
+      {
+        id: `shortcut-${Date.now()}-health`,
+        label: 'Medication Note',
+        module: 'Health',
+        presetText: 'Medication update:\nDose/time:\nEffects:\nFollow-up:'
+      }
+    ];
+  }
+  return journalShortcutsByUser[userName];
+}
+
+function formatJournalDate(ts) {
+  return new Date(ts).toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+function addJournalEntry(title, body, tag) {
+  const entries = ensureJournalEntryStore(getActiveUserName());
+  entries.unshift({
+    id: `journal-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    title: title || 'Untitled Log',
+    body: body || 'No details provided.',
+    tag: tag || getActiveUserName(),
+    createdAt: Date.now(),
+    favorite: false,
+    pinned: false
+  });
+  renderJournalModule();
+}
+
+function getFilteredJournalEntries() {
+  const entries = [...ensureJournalEntryStore(getActiveUserName())];
+  const query = (journalSearchInput?.value || '').trim().toLowerCase();
+  const filterValue = journalFilterSelect?.value || 'all';
+  const sortValue = journalSortSelect?.value || 'newest';
+
+  const filtered = entries.filter((entry) => {
+    const matchesQuery = !query || [entry.title, entry.body, entry.tag]
+      .some((value) => String(value || '').toLowerCase().includes(query));
+    const matchesFilter = filterValue === 'all'
+      ? true
+      : filterValue === 'favorites'
+        ? Boolean(entry.favorite)
+        : filterValue === 'pinned'
+          ? Boolean(entry.pinned)
+          : true;
+    return matchesQuery && matchesFilter;
+  });
+
+  filtered.sort((a, b) => {
+    const pinDiff = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+    if (pinDiff) return pinDiff;
+    if (sortValue === 'oldest') return Number(a.createdAt || 0) - Number(b.createdAt || 0);
+    if (sortValue === 'az') return String(a.title || '').localeCompare(String(b.title || ''));
+    return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+  });
+
+  return filtered;
+}
+
+function renderJournalEntries() {
+  if (!journalList) return;
+  const allEntries = ensureJournalEntryStore(getActiveUserName());
+  const entries = getFilteredJournalEntries();
+
+  if (!allEntries.length) {
+    journalList.innerHTML = '';
+    if (journalEmptyHint) {
+      journalEmptyHint.textContent = 'No journal entries yet. Add one to get started.';
+      journalEmptyHint.hidden = false;
+    }
+    renderDashboard();
+    return;
+  }
+
+  if (!entries.length) {
+    journalList.innerHTML = '<div class="journal-card"><p>No journal entries match the current search or filter.</p></div>';
+    if (journalEmptyHint) journalEmptyHint.hidden = true;
+    renderDashboard();
+    return;
+  }
+
+  if (journalEmptyHint) journalEmptyHint.hidden = true;
+  journalList.innerHTML = entries.map((entry) => `
+    <div class="journal-card ${entry.pinned ? 'is-pinned' : ''} ${entry.favorite ? 'is-favorite' : ''}" data-journal-id="${entry.id}">
+      <div class="journal-meta">
+        <span class="journal-date">${escapeHtml(formatJournalDate(entry.createdAt))}</span>
+        <span class="badge">${escapeHtml(entry.tag)}</span>
+        ${entry.favorite ? '<span class="badge">★ Favorite</span>' : ''}
+        ${entry.pinned ? '<span class="badge">📌 Pinned</span>' : ''}
+      </div>
+      <h3>${escapeHtml(entry.title)}</h3>
+      <div class="journal-body-text">${renderMarkdown(entry.body)}</div>
+      <div class="journal-card-actions">
+        <button class="btn-sm" type="button" data-journal-action="favorite" data-journal-id="${entry.id}">${entry.favorite ? '★ Favorited' : '☆ Favorite'}</button>
+        <button class="btn-sm" type="button" data-journal-action="pin" data-journal-id="${entry.id}">${entry.pinned ? '📌 Pinned' : 'Pin'}</button>
+        <button class="btn-sm" type="button" data-journal-action="edit" data-journal-id="${entry.id}">Edit</button>
+        <button class="btn-sm" type="button" data-journal-action="delete" data-journal-id="${entry.id}">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  renderDashboard();
+}
+
+function renderLogShortcuts() {
+  if (!logShortcutsList) return;
+  const shortcuts = ensureJournalShortcutStore(getActiveUserName());
+  if (!shortcuts.length) {
+    logShortcutsList.innerHTML = '<p class="headmate-hint" style="margin:8px 0">No shortcuts yet.</p>';
+    return;
+  }
+
+  logShortcutsList.innerHTML = shortcuts.map((shortcut) => `
+    <div class="log-shortcut-chip" data-shortcut-id="${shortcut.id}">
+      <button class="btn-sm" type="button" data-log-shortcut-action="run" data-shortcut-id="${shortcut.id}">${escapeHtml(shortcut.label)}</button>
+      <span>${escapeHtml(shortcut.module)}</span>
+      <button class="btn-sm" type="button" data-log-shortcut-action="delete" data-shortcut-id="${shortcut.id}" title="Delete shortcut">&#10005;</button>
+    </div>
+  `).join('');
+}
+
+function renderJournalModule() {
+  if (logShortcutModuleSelect) {
+    logShortcutModuleSelect.innerHTML = logModules
+      .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+      .join('');
+  }
+  renderLogShortcuts();
+  renderJournalEntries();
+}
+
+if (addJournalEntryBtn) {
+  addJournalEntryBtn.addEventListener('click', () => {
+    const title = safePrompt('Entry title:', 'Manual Journal Entry');
+    if (!title || !title.trim()) return;
+    const text = safePrompt('Entry text:', '');
+    if (text === null || text === undefined) return;
+    addJournalEntry(title.trim(), (text || '').trim() || 'No details provided.', getActiveUserName());
+  });
+}
+
+if (addLogShortcutBtn) {
+  addLogShortcutBtn.addEventListener('click', () => {
+    if (logShortcutEditor) logShortcutEditor.hidden = false;
+    if (logShortcutLabelInput) logShortcutLabelInput.value = '';
+    if (logShortcutTextInput) logShortcutTextInput.value = '';
+    if (logShortcutModuleSelect && !logShortcutModuleSelect.value) {
+      logShortcutModuleSelect.value = 'Overview';
+    }
+  });
+}
+
+if (saveLogShortcutBtn) {
+  saveLogShortcutBtn.addEventListener('click', () => {
+    const label = (logShortcutLabelInput?.value || '').trim();
+    const moduleName = (logShortcutModuleSelect?.value || '').trim();
+    const presetText = (logShortcutTextInput?.value || '').trim();
+
+    if (!label || !moduleName || !presetText) {
+      safeAlert('Please fill in label, module, and preset text.');
+      return;
+    }
+
+    const shortcuts = ensureJournalShortcutStore(getActiveUserName());
+    shortcuts.push({
+      id: `shortcut-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      label,
+      module: moduleName,
+      presetText
+    });
+
+    if (logShortcutEditor) logShortcutEditor.hidden = true;
+    renderLogShortcuts();
+  });
+}
+
+if (cancelLogShortcutBtn) {
+  cancelLogShortcutBtn.addEventListener('click', () => {
+    if (logShortcutEditor) logShortcutEditor.hidden = true;
+  });
+}
+
+if (logShortcutsList) {
+  logShortcutsList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-log-shortcut-action]');
+    if (!button) return;
+
+    const action = button.dataset.logShortcutAction;
+    const shortcutId = button.dataset.shortcutId;
+    if (!shortcutId) return;
+
+    const shortcuts = ensureJournalShortcutStore(getActiveUserName());
+    const index = shortcuts.findIndex((shortcut) => shortcut.id === shortcutId);
+    if (index < 0) return;
+
+    if (action === 'run') {
+      const shortcut = shortcuts[index];
+      addJournalEntry(`${shortcut.module} Log: ${shortcut.label}`, shortcut.presetText, shortcut.module);
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!safeConfirm(`Delete shortcut "${shortcuts[index].label}"?`)) return;
+      shortcuts.splice(index, 1);
+      renderLogShortcuts();
+    }
+  });
+}
+
+if (journalList) {
+  journalList.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-journal-action]');
+    if (!button) return;
+
+    const action = button.dataset.journalAction;
+    const entryId = button.dataset.journalId;
+    if (!entryId) return;
+
+    const entries = ensureJournalEntryStore(getActiveUserName());
+    const entry = entries.find((item) => item.id === entryId);
+    if (!entry) return;
+
+    if (action === 'favorite') {
+      entry.favorite = !entry.favorite;
+      renderJournalEntries();
+      return;
+    }
+
+    if (action === 'pin') {
+      entry.pinned = !entry.pinned;
+      renderJournalEntries();
+      return;
+    }
+
+    if (action === 'edit') {
+      const nextTitle = safePrompt('Edit entry title:', entry.title || 'Untitled Log');
+      if (nextTitle === null || nextTitle === undefined || !nextTitle.trim()) return;
+      const nextBody = safePrompt('Edit entry text:', entry.body || '');
+      if (nextBody === null || nextBody === undefined) return;
+      const nextTag = safePrompt('Edit tag/module:', entry.tag || getActiveUserName());
+      entry.title = nextTitle.trim();
+      entry.body = (nextBody || '').trim() || 'No details provided.';
+      entry.tag = (nextTag || '').trim() || getActiveUserName();
+      renderJournalEntries();
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!safeConfirm(`Delete journal entry "${entry.title}"?`)) return;
+      const index = entries.findIndex((item) => item.id === entryId);
+      if (index >= 0) entries.splice(index, 1);
+      renderJournalEntries();
+    }
+  });
+}
+
+[journalSearchInput, journalFilterSelect, journalSortSelect].forEach((el) => {
+  if (!el) return;
+  el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', renderJournalEntries);
+});
+
+renderJournalModule();
+
+// =====================
+// History: Timeline event manager
+// =====================
+const addHistoryEventBtn = document.getElementById('addHistoryEventBtn');
+const historyEventEditor = document.getElementById('historyEventEditor');
+const historyEventTitleInput = document.getElementById('historyEventTitleInput');
+const historyEventDateInput = document.getElementById('historyEventDateInput');
+const historyEventTypeInput = document.getElementById('historyEventTypeInput');
+const historyEventNotesInput = document.getElementById('historyEventNotesInput');
+const saveHistoryEventBtn = document.getElementById('saveHistoryEventBtn');
+const cancelHistoryEventBtn = document.getElementById('cancelHistoryEventBtn');
+const historyTimeline = document.getElementById('historyTimeline');
+const historyEmptyHint = document.getElementById('historyEmptyHint');
+const historySearchInput = document.getElementById('historySearchInput');
+const historyFilterSelect = document.getElementById('historyFilterSelect');
+const historySortSelect = document.getElementById('historySortSelect');
+
+const historyEvents = [
+  {
+    id: 'history-1',
+    title: 'Spring System Win',
+    date: '2026-03-31',
+    type: 'Win',
+    notes: 'Completed a major organization pass and stabilized multiple tracking modules.'
+  },
+  {
+    id: 'history-2',
+    title: 'Subsystem Anniversary',
+    date: '2026-02-12',
+    type: 'Anniversary',
+    notes: 'Marked the anniversary of a key subsystem becoming more active and collaborative.'
+  },
+  {
+    id: 'history-3',
+    title: 'Important Split Event',
+    date: '2025-11-04',
+    type: 'Split',
+    notes: 'Recorded a major structural change in the system timeline.'
+  }
+];
+
+let editingHistoryEventId = null;
+let creatingHistoryEvent = false;
+
+function formatHistoryDate(dateValue) {
+  if (!dateValue) return 'No date set';
+  const parsed = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return dateValue;
+  return parsed.toLocaleDateString([], {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function getSortedHistoryEvents(options = {}) {
+  const query = options.ignoreFilters ? '' : (historySearchInput?.value || '').trim().toLowerCase();
+  const filterValue = options.ignoreFilters ? 'all' : (historyFilterSelect?.value || 'all');
+  const sortValue = options.ignoreFilters ? 'newest' : (historySortSelect?.value || 'newest');
+
+  const filtered = [...historyEvents].filter((entry) => {
+    const matchesQuery = !query || [entry.title, entry.notes, entry.type, entry.date]
+      .some((value) => String(value || '').toLowerCase().includes(query));
+
+    let matchesFilter = true;
+    if (filterValue === 'favorites') matchesFilter = Boolean(entry.favorite);
+    else if (filterValue === 'pinned') matchesFilter = Boolean(entry.pinned);
+    else if (filterValue !== 'all') matchesFilter = String(entry.type || '').toLowerCase() === filterValue.toLowerCase();
+
+    return matchesQuery && matchesFilter;
+  });
+
+  filtered.sort((a, b) => {
+    const pinDiff = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+    if (pinDiff) return pinDiff;
+    if (sortValue === 'oldest') return String(a.date || '').localeCompare(String(b.date || ''));
+    if (sortValue === 'az') return String(a.title || '').localeCompare(String(b.title || ''));
+    return String(b.date || '').localeCompare(String(a.date || ''));
+  });
+
+  return filtered;
+}
+
+function loadHistoryEditor(eventData) {
+  historyEventTitleInput.value = eventData.title || '';
+  historyEventDateInput.value = eventData.date || '';
+  historyEventTypeInput.value = eventData.type || 'Event';
+  historyEventNotesInput.value = eventData.notes || '';
+}
+
+function openHistoryEditor(eventData, isCreating) {
+  creatingHistoryEvent = isCreating;
+  editingHistoryEventId = isCreating ? null : eventData.id;
+  loadHistoryEditor(eventData);
+  if (historyEventEditor) {
+    historyEventEditor.hidden = false;
+    historyEventEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function closeHistoryEditor() {
+  creatingHistoryEvent = false;
+  editingHistoryEventId = null;
+  if (historyEventEditor) historyEventEditor.hidden = true;
+}
+
+function renderHistoryTimeline() {
+  if (!historyTimeline) return;
+  const entries = getSortedHistoryEvents();
+
+  if (!historyEvents.length) {
+    historyTimeline.innerHTML = '';
+    if (historyEmptyHint) {
+      historyEmptyHint.textContent = 'No history events yet. Add one to build the timeline.';
+      historyEmptyHint.hidden = false;
+    }
+    renderDashboard();
+    return;
+  }
+
+  if (!entries.length) {
+    historyTimeline.innerHTML = '<article class="history-event-card"><div class="history-event-body"><p>No history events match the current search or filter.</p></div></article>';
+    if (historyEmptyHint) historyEmptyHint.hidden = true;
+    renderDashboard();
+    return;
+  }
+
+  if (historyEmptyHint) historyEmptyHint.hidden = true;
+  historyTimeline.innerHTML = entries.map((entry) => `
+    <article class="history-event-card ${entry.pinned ? 'is-pinned' : ''} ${entry.favorite ? 'is-favorite' : ''}" data-history-id="${entry.id}">
+      <div class="history-event-marker"></div>
+      <div class="history-event-body">
+        <div class="history-event-meta">
+          <span class="journal-date">${escapeHtml(formatHistoryDate(entry.date))}</span>
+          <span class="badge">${escapeHtml(entry.type)}</span>
+          ${entry.favorite ? '<span class="badge">★ Favorite</span>' : ''}
+          ${entry.pinned ? '<span class="badge">📌 Pinned</span>' : ''}
+        </div>
+        <h3>${escapeHtml(entry.title)}</h3>
+        <div class="history-event-text">${renderMarkdown(entry.notes || 'No notes provided.')}</div>
+        <div class="history-event-actions">
+          <button class="btn-sm" type="button" data-history-action="favorite" data-history-id="${entry.id}">${entry.favorite ? '★ Favorited' : '☆ Favorite'}</button>
+          <button class="btn-sm" type="button" data-history-action="pin" data-history-id="${entry.id}">${entry.pinned ? '📌 Pinned' : 'Pin'}</button>
+          <button class="btn-sm" type="button" data-history-action="edit" data-history-id="${entry.id}">Edit</button>
+          <button class="btn-sm" type="button" data-history-action="delete" data-history-id="${entry.id}">Delete</button>
+        </div>
+      </div>
+    </article>
+  `).join('');
+
+  renderDashboard();
+}
+
+if (addHistoryEventBtn) {
+  addHistoryEventBtn.addEventListener('click', () => {
+    openHistoryEditor({
+      title: '',
+      date: new Date().toISOString().slice(0, 10),
+      type: 'Event',
+      notes: ''
+    }, true);
+  });
+}
+
+if (saveHistoryEventBtn) {
+  saveHistoryEventBtn.addEventListener('click', () => {
+    const title = (historyEventTitleInput?.value || '').trim();
+    const date = (historyEventDateInput?.value || '').trim();
+    const type = (historyEventTypeInput?.value || '').trim();
+    const notes = (historyEventNotesInput?.value || '').trim();
+
+    if (!title || !date || !type) {
+      safeAlert('Title, date, and event type are required.');
+      return;
+    }
+
+    if (creatingHistoryEvent) {
+      historyEvents.push({
+        id: `history-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+        title,
+        date,
+        type,
+        notes,
+        favorite: false,
+        pinned: false
+      });
+    } else {
+      const index = historyEvents.findIndex((entry) => entry.id === editingHistoryEventId);
+      if (index < 0) return;
+      historyEvents[index] = {
+        ...historyEvents[index],
+        title,
+        date,
+        type,
+        notes
+      };
+    }
+
+    closeHistoryEditor();
+    renderHistoryTimeline();
+  });
+}
+
+if (cancelHistoryEventBtn) {
+  cancelHistoryEventBtn.addEventListener('click', closeHistoryEditor);
+}
+
+if (historyTimeline) {
+  historyTimeline.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-history-action]');
+    if (!button) return;
+    const action = button.dataset.historyAction;
+    const eventId = button.dataset.historyId;
+    if (!eventId) return;
+
+    const entry = historyEvents.find((item) => item.id === eventId);
+    if (!entry) return;
+
+    if (action === 'favorite') {
+      entry.favorite = !entry.favorite;
+      renderHistoryTimeline();
+      return;
+    }
+
+    if (action === 'pin') {
+      entry.pinned = !entry.pinned;
+      renderHistoryTimeline();
+      return;
+    }
+
+    if (action === 'edit') {
+      openHistoryEditor(entry, false);
+      return;
+    }
+
+    if (action === 'delete') {
+      if (!safeConfirm(`Delete event "${entry.title}"?`)) return;
+      const index = historyEvents.findIndex((item) => item.id === eventId);
+      if (index >= 0) historyEvents.splice(index, 1);
+      closeHistoryEditor();
+      renderHistoryTimeline();
+    }
+  });
+}
+
+[historySearchInput, historyFilterSelect, historySortSelect].forEach((el) => {
+  if (!el) return;
+  el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', renderHistoryTimeline);
+});
+
+renderHistoryTimeline();
+// =====================
+// Account Profiles (global, not per system-user)
+// =====================
+const accounts = {};
+let loggedInAccountKey = null;
+let authToken = '';
+const ACCOUNT_STORAGE_KEY = 'ispd7.accounts.v1';
+const ACCOUNT_SESSION_KEY = 'ispd7.session.v1';
+const AUTH_TOKEN_KEY = 'ispd7.auth.token.v1';
+
+function setAuthToken(token = '') {
+  authToken = String(token || '').trim();
+  try {
+    if (authToken) localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch (_err) {
+    // Ignore storage issues in restricted browsing modes.
+  }
+}
+
+function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
+  const username = String(account.username || fallbackUsername || 'user').trim().toLowerCase();
+  const displayName = String(account.name || username || 'User').trim() || 'User';
+  return {
+    username,
+    name: displayName,
+    description: account.description || 'No description set.',
+    tags: account.tags || 'Not set',
+    customFields: account.customFields || 'Not set',
+    profilePhoto: account.profilePhoto || displayName[0]?.toUpperCase() || 'U',
+    banner: account.banner || `${displayName} Banner`,
+    color: account.color || '#6c63ff',
+    createdAt: account.createdAt || new Date().toISOString()
+  };
+}
+
+async function apiRequest(path, options = {}) {
+  if (!API_BASE_URL) {
+    throw new Error('Backend URL is not configured yet.');
+  }
+
+  const headers = new Headers(options.headers || {});
+  if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  if (authToken) {
+    headers.set('Authorization', `Bearer ${authToken}`);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'Request failed.');
+  }
+
+  return data;
+}
+
+function persistAccountState() {
+  try {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
+    if (loggedInAccountKey && accounts[loggedInAccountKey]) {
+      localStorage.setItem(ACCOUNT_SESSION_KEY, loggedInAccountKey);
+    } else {
+      localStorage.removeItem(ACCOUNT_SESSION_KEY);
+    }
+  } catch (_err) {
+    // Ignore storage issues in restricted browsing modes.
+  }
+}
+
+function loadAccountState() {
+  try {
+    const savedAccounts = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || '{}');
+    if (savedAccounts && typeof savedAccounts === 'object') {
+      Object.entries(savedAccounts).forEach(([key, value]) => {
+        if (!key || !value || typeof value !== 'object') return;
+        accounts[key] = { ...value };
+      });
+    }
+
+    authToken = String(localStorage.getItem(AUTH_TOKEN_KEY) || '').trim();
+    const savedSession = (localStorage.getItem(ACCOUNT_SESSION_KEY) || '').trim().toLowerCase();
+    if (savedSession && accounts[savedSession]) {
+      loggedInAccountKey = savedSession;
+    }
+  } catch (_err) {
+    loggedInAccountKey = null;
+    authToken = '';
+  }
+}
+
+function isSignedIn() {
+  return Boolean(loggedInAccountKey && accounts[loggedInAccountKey]);
+}
+
+function setAppLockState() {
+  const locked = !isSignedIn();
+  const profileHeader = document.querySelector('#page-profile .page-header h1');
+
+  document.body.classList.toggle('app-locked', locked);
+
+  navItems.forEach((item) => {
+    const allowed = !locked || item.dataset.module === 'profile';
+    item.classList.toggle('nav-item-locked', !allowed);
+    item.setAttribute('aria-disabled', String(!allowed));
+  });
+
+  quickBtns.forEach((btn) => {
+    btn.disabled = locked;
+    btn.classList.toggle('btn-disabled', locked);
+  });
+
+  if (globalSearchInput) {
+    globalSearchInput.disabled = locked;
+    globalSearchInput.placeholder = locked ? 'Sign in to use search...' : 'Search...';
+  }
+
+  if (userSwitcherBtn) {
+    userSwitcherBtn.classList.toggle('disabled', locked);
+    userSwitcherBtn.setAttribute('aria-disabled', String(locked));
+  }
+
+  if (profileHeader) {
+    profileHeader.textContent = locked ? 'Sign In Required' : 'Member Profile';
+  }
+
+  if (locked) {
+    userDropdown?.classList.remove('open');
+    navItems.forEach((item) => item.classList.toggle('active', item.dataset.module === 'profile'));
+    pages.forEach((page) => page.classList.toggle('active', page.id === 'page-profile'));
+  }
+}
+
+loadAccountState();
+
+const accountLoginView = document.getElementById('accountLoginView');
+const accountSignupView = document.getElementById('accountSignupView');
+const accountProfileView = document.getElementById('accountProfileView');
+const loginUsernameInput = document.getElementById('loginUsernameInput');
+const loginPasswordInput = document.getElementById('loginPasswordInput');
+const loginError = document.getElementById('loginError');
+const loginSubmitBtn = document.getElementById('loginSubmitBtn');
+const showSignupBtn = document.getElementById('showSignupBtn');
+const signupUsernameInput = document.getElementById('signupUsernameInput');
+const signupPasswordInput = document.getElementById('signupPasswordInput');
+const signupError = document.getElementById('signupError');
+const signupSubmitBtn = document.getElementById('signupSubmitBtn');
+const showLoginBtn = document.getElementById('showLoginBtn');
+const accountBanner = document.getElementById('accountBanner');
+const accountUsernameDisplay = document.getElementById('accountUsernameDisplay');
+const accountDescriptionDisplay = document.getElementById('accountDescriptionDisplay');
+const accountTagsDisplay = document.getElementById('accountTagsDisplay');
+const accountCustomFieldsDisplay = document.getElementById('accountCustomFieldsDisplay');
+const editAccountNameInput = document.getElementById('editAccountNameInput');
+const editAccountUsernameInput = document.getElementById('editAccountUsernameInput');
+const editAccountDescriptionInput = document.getElementById('editAccountDescriptionInput');
+const editAccountTagsInput = document.getElementById('editAccountTagsInput');
+const editAccountCustomFieldsInput = document.getElementById('editAccountCustomFieldsInput');
+const editAccountPhotoInput = document.getElementById('editAccountPhotoInput');
+const editAccountBannerInput = document.getElementById('editAccountBannerInput');
+const editPasswordInput = document.getElementById('editPasswordInput');
+const editConfirmPasswordInput = document.getElementById('editConfirmPasswordInput');
+const editError = document.getElementById('editError');
+const saveAccountBtn = document.getElementById('saveAccountBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+const deleteAccountBtn = document.getElementById('deleteAccountBtn');
+
+function showAccountError(el, msg) {
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+function renderAccountModule() {
+  if (!accountLoginView) return;
+
+  if (loggedInAccountKey && accounts[loggedInAccountKey]) {
+    const acct = accounts[loggedInAccountKey];
+    accountLoginView.hidden = true;
+    accountSignupView.hidden = true;
+    accountProfileView.hidden = false;
+
+    const name = (acct.name || acct.username || 'User').trim();
+    const photo = (acct.profilePhoto || name[0] || 'U').trim();
+    const initial = name[0]?.toUpperCase() || 'U';
+    const color = acct.color || '#6c63ff';
+    applyPhotoStyle(profileAvatar, photo, initial, color);
+    if (accountBanner) {
+      applyBannerStyle(accountBanner, acct.banner || '', color, '--headmate-color');
+    }
+    if (profileName) profileName.textContent = name;
+    if (accountUsernameDisplay) accountUsernameDisplay.textContent = `@${acct.username}`;
+    if (accountDescriptionDisplay) accountDescriptionDisplay.innerHTML = renderMarkdown(acct.description || 'No description set.');
+    if (accountTagsDisplay) accountTagsDisplay.innerHTML = renderTagPills(acct.tags || '');
+    if (accountCustomFieldsDisplay) {
+      const customMarkup = renderCustomFieldArticles(acct).join('');
+      accountCustomFieldsDisplay.innerHTML = customMarkup || '';
+      accountCustomFieldsDisplay.hidden = !customMarkup;
+    }
+    if (editAccountNameInput) editAccountNameInput.value = name;
+    if (editAccountUsernameInput) editAccountUsernameInput.value = acct.username || '';
+    if (editAccountDescriptionInput) editAccountDescriptionInput.value = acct.description || '';
+    if (editAccountTagsInput) editAccountTagsInput.value = acct.tags || '';
+    if (editAccountCustomFieldsInput) editAccountCustomFieldsInput.value = acct.customFields || '';
+    if (editAccountPhotoInput) editAccountPhotoInput.value = acct.profilePhoto || initial;
+    if (editAccountBannerInput) editAccountBannerInput.value = acct.banner || `${name} Banner`;
+    if (editPasswordInput) editPasswordInput.value = '';
+    if (editConfirmPasswordInput) editConfirmPasswordInput.value = '';
+    showAccountError(editError, '');
+  } else {
+    accountLoginView.hidden = false;
+    accountSignupView.hidden = true;
+    accountProfileView.hidden = true;
+    if (loginUsernameInput) loginUsernameInput.value = '';
+    if (loginPasswordInput) loginPasswordInput.value = '';
+    showAccountError(loginError, '');
+  }
+
+  setAppLockState();
+  renderDashboard();
+}
+
+if (showSignupBtn) {
+  showSignupBtn.addEventListener('click', () => {
+    if (accountLoginView) accountLoginView.hidden = true;
+    if (accountSignupView) accountSignupView.hidden = false;
+    if (signupUsernameInput) signupUsernameInput.value = '';
+    if (signupPasswordInput) signupPasswordInput.value = '';
+    showAccountError(signupError, '');
+  });
+}
+
+if (showLoginBtn) {
+  showLoginBtn.addEventListener('click', () => {
+    if (accountSignupView) accountSignupView.hidden = true;
+    if (accountLoginView) accountLoginView.hidden = false;
+    showAccountError(loginError, '');
+  });
+}
+
+if (loginSubmitBtn) {
+  loginSubmitBtn.addEventListener('click', async () => {
+    const username = (loginUsernameInput?.value || '').trim().toLowerCase();
+    const password = loginPasswordInput?.value || '';
+    if (!username || !password) {
+      showAccountError(loginError, 'Please enter your username and password.');
+      return;
+    }
+
+    if (USE_BACKEND_AUTH) {
+      try {
+        const result = await apiRequest('/api/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ username, password })
+        });
+        const account = normalizeRemoteAccount(result.account, username);
+        accounts[account.username] = account;
+        loggedInAccountKey = account.username;
+        setAuthToken(result.token || '');
+        persistAccountState();
+        renderAccountModule();
+        navigateTo('dashboard');
+      } catch (err) {
+        showAccountError(loginError, err.message || 'Sign-in failed.');
+      }
+      return;
+    }
+
+    const acct = accounts[username];
+    if (!acct || acct.password !== password) {
+      showAccountError(loginError, 'Invalid username or password.');
+      return;
+    }
+    loggedInAccountKey = username;
+    persistAccountState();
+    renderAccountModule();
+    navigateTo('dashboard');
+  });
+}
+
+if (signupSubmitBtn) {
+  signupSubmitBtn.addEventListener('click', async () => {
+    const username = (signupUsernameInput?.value || '').trim().toLowerCase();
+    const password = signupPasswordInput?.value || '';
+
+    if (!username) { showAccountError(signupError, 'Username is required.'); return; }
+    if (!/^[a-z0-9_-]{2,32}$/.test(username)) {
+      showAccountError(signupError, 'Username must be 2–32 characters: letters, numbers, _ or -.');
+      return;
+    }
+    if (accounts[username] && !USE_BACKEND_AUTH) { showAccountError(signupError, 'That username is already taken.'); return; }
+    if (!password) { showAccountError(signupError, 'Password is required.'); return; }
+    if (password.length < 6) { showAccountError(signupError, 'Password must be at least 6 characters.'); return; }
+
+    if (USE_BACKEND_AUTH) {
+      try {
+        const result = await apiRequest('/api/auth/signup', {
+          method: 'POST',
+          body: JSON.stringify({ username, password })
+        });
+        const account = normalizeRemoteAccount(result.account, username);
+        accounts[account.username] = account;
+        loggedInAccountKey = account.username;
+        setAuthToken(result.token || '');
+        persistAccountState();
+        renderAccountModule();
+        navigateTo('dashboard');
+      } catch (err) {
+        showAccountError(signupError, err.message || 'Account creation failed.');
+      }
+      return;
+    }
+
+    const palette = ['#6c63ff','#ff6584','#43d9ad','#f5a623','#a29bfe','#fd79a8','#0984e3','#e17055'];
+    accounts[username] = {
+      username,
+      name: username,
+      description: 'No description set.',
+      tags: 'Not set',
+      customFields: 'Not set',
+      profilePhoto: username[0]?.toUpperCase() || 'U',
+      banner: `${username} Banner`,
+      password,
+      color: palette[Object.keys(accounts).length % palette.length],
+      createdAt: new Date().toISOString()
+    };
+    loggedInAccountKey = username;
+    persistAccountState();
+    renderAccountModule();
+    navigateTo('dashboard');
+  });
+}
+
+if (saveAccountBtn) {
+  saveAccountBtn.addEventListener('click', async () => {
+    if (!loggedInAccountKey || !accounts[loggedInAccountKey]) return;
+    const current = accounts[loggedInAccountKey];
+    const name = (editAccountNameInput?.value || '').trim();
+    const username = (editAccountUsernameInput?.value || '').trim().toLowerCase();
+    const description = (editAccountDescriptionInput?.value || '').trim();
+    const tags = (editAccountTagsInput?.value || '').trim();
+    const customFields = (editAccountCustomFieldsInput?.value || '').trim();
+    const profilePhoto = (editAccountPhotoInput?.value || '').trim();
+    const banner = (editAccountBannerInput?.value || '').trim();
+    const newPassword = editPasswordInput?.value || '';
+    const confirmPassword = editConfirmPasswordInput?.value || '';
+
+    if (!name) { showAccountError(editError, 'Name is required.'); return; }
+    if (!username) { showAccountError(editError, 'Username is required.'); return; }
+    if (!/^[a-z0-9_-]{2,32}$/.test(username)) {
+      showAccountError(editError, 'Username must be 2–32 characters: letters, numbers, _ or -.');
+      return;
+    }
+    if (username !== loggedInAccountKey && accounts[username] && !USE_BACKEND_AUTH) {
+      showAccountError(editError, 'That username is already taken.');
+      return;
+    }
+    if (newPassword && newPassword.length < 6) {
+      showAccountError(editError, 'Password must be at least 6 characters.');
+      return;
+    }
+    if (newPassword && newPassword !== confirmPassword) {
+      showAccountError(editError, 'Passwords do not match.');
+      return;
+    }
+
+    const updated = {
+      ...current,
+      username,
+      name,
+      description: description || 'No description set.',
+      tags: tags || 'Not set',
+      customFields: customFields || 'Not set',
+      profilePhoto: profilePhoto || (name[0]?.toUpperCase() || 'U'),
+      banner: banner || `${name} Banner`
+    };
+
+    if (USE_BACKEND_AUTH) {
+      try {
+        const result = await apiRequest('/api/me', {
+          method: 'PUT',
+          body: JSON.stringify({
+            username,
+            name,
+            description: updated.description,
+            tags: updated.tags,
+            customFields: updated.customFields,
+            profilePhoto: updated.profilePhoto,
+            banner: updated.banner,
+            color: updated.color,
+            newPassword: newPassword || undefined
+          })
+        });
+        const savedAccount = normalizeRemoteAccount(result.account, username);
+        delete accounts[loggedInAccountKey];
+        accounts[savedAccount.username] = savedAccount;
+        loggedInAccountKey = savedAccount.username;
+        if (result.token) setAuthToken(result.token);
+        showAccountError(editError, '');
+        persistAccountState();
+        renderAccountModule();
+        safeAlert('Profile saved.');
+      } catch (err) {
+        showAccountError(editError, err.message || 'Could not save profile.');
+      }
+      return;
+    }
+
+    if (newPassword) updated.password = newPassword;
+
+    if (username !== loggedInAccountKey) {
+      delete accounts[loggedInAccountKey];
+      accounts[username] = updated;
+      loggedInAccountKey = username;
+    } else {
+      accounts[loggedInAccountKey] = updated;
+    }
+
+    showAccountError(editError, '');
+    persistAccountState();
+    renderAccountModule();
+    safeAlert('Profile saved.');
+  });
+}
+
+if (logoutBtn) {
+  logoutBtn.addEventListener('click', () => {
+    loggedInAccountKey = null;
+    setAuthToken('');
+    persistAccountState();
+    renderAccountModule();
+    navigateTo('profile');
+  });
+}
+
+if (deleteAccountBtn) {
+  deleteAccountBtn.addEventListener('click', async () => {
+    if (!loggedInAccountKey || !accounts[loggedInAccountKey]) return;
+    const acct = accounts[loggedInAccountKey];
+    if (!safeConfirm(`Delete account "${acct.name || acct.username}"? This cannot be undone.`)) return;
+
+    if (USE_BACKEND_AUTH) {
+      try {
+        await apiRequest('/api/me', { method: 'DELETE' });
+      } catch (err) {
+        showAccountError(editError, err.message || 'Could not delete account.');
+        return;
+      }
+    }
+
+    delete accounts[loggedInAccountKey];
+    loggedInAccountKey = null;
+    setAuthToken('');
+    persistAccountState();
+    renderAccountModule();
+    navigateTo('profile');
+  });
+}
+
+renderAccountModule();
+
+// =====================
+// Settings Module
+// =====================
+
+const THEME_TOKEN_META = [
+  { key: '--bg', label: 'Background' },
+  { key: '--surface', label: 'Surface' },
+  { key: '--surface2', label: 'Surface 2' },
+  { key: '--border', label: 'Border' },
+  { key: '--text', label: 'Text' },
+  { key: '--text-muted', label: 'Text Muted' },
+  { key: '--accent', label: 'Accent' },
+  { key: '--accent-light', label: 'Accent Light' },
+  { key: '--danger', label: 'Danger' },
+  { key: '--success', label: 'Success' }
+];
+
+const BASE_LIGHT_THEME = {
+  '--bg': '#f0f2f5',
+  '--surface': '#ffffff',
+  '--surface2': '#f8f9fb',
+  '--border': '#e2e6ea',
+  '--text': '#1a1d23',
+  '--text-muted': '#6b7280',
+  '--accent': '#6c63ff',
+  '--accent-light': '#ede9ff',
+  '--danger': '#e53e3e',
+  '--success': '#22c55e'
+};
+
+const BASE_DARK_THEME = {
+  '--bg': '#12141a',
+  '--surface': '#1e2029',
+  '--surface2': '#252731',
+  '--border': '#2e3140',
+  '--text': '#e8eaf0',
+  '--text-muted': '#9099b0',
+  '--accent': '#8b85ff',
+  '--accent-light': '#232040',
+  '--danger': '#f87171',
+  '--success': '#4ade80'
+};
+
+let customThemeTokens = {
+  light: { ...BASE_LIGHT_THEME },
+  dark: { ...BASE_DARK_THEME }
+};
+
+const LIGHT_THEME_PRESETS = {
+  'default-light': { ...BASE_LIGHT_THEME, '--accent': '#6c63ff', '--accent-light': '#e7f7f7' },
+  'pastel-rainbow': {
+    '--bg': '#ffd9df',           // pastel red
+    '--surface': '#ffe4cc',      // pastel orange
+    '--surface2': '#fff4b8',     // pastel yellow
+    '--border': '#e4f3b2',       // pastel yellow-green
+    '--text': '#bfe8b8',         // pastel green
+    '--text-muted': '#b7efe3',   // pastel green-blue
+    '--accent': '#bddcff',       // pastel blue
+    '--accent-light': '#d8d0ff', // pastel blue-purple
+    '--danger': '#e4c6ff',       // pastel purple
+    '--success': '#ffcae4'       // pastel pink
+  },
+  'valentine-light': { '--bg': '#fff4f8', '--surface': '#ffffff', '--surface2': '#ffe9f1', '--border': '#f6cfe0', '--text': '#5e2f46', '--text-muted': '#a86586', '--accent': '#f472b6', '--accent-light': '#ffe3f1', '--danger': '#ec4899', '--success': '#fb7185' },
+  'neon-rainbow': {
+    '--bg': '#ff003c',         // red
+    '--surface': '#ff6a00',    // orange
+    '--surface2': '#fff200',   // yellow
+    '--border': '#9dff00',     // yellow-green
+    '--text': '#00ff66',       // green
+    '--text-muted': '#00ffd9', // green-blue
+    '--accent': '#00a6ff',     // blue
+    '--accent-light': '#6a00ff', // blue-purple
+    '--danger': '#b400ff',     // purple
+    '--success': '#ff4fd8'     // pink
+  },
+  'watermelon': { '--bg': '#f6fff7', '--surface': '#ffffff', '--surface2': '#eefbef', '--border': '#cfead3', '--text': '#2f4a3a', '--text-muted': '#678579', '--accent': '#f472b6', '--accent-light': '#ffe5ef', '--danger': '#ef4444', '--success': '#22c55e' },
+  'sunset': { '--bg': '#fff4f8', '--surface': '#fffaf5', '--surface2': '#ffe9d6', '--border': '#ffd2c2', '--text': '#5b4a5f', '--text-muted': '#9b7f97', '--accent': '#ff9f68', '--accent-light': '#ffe2c8', '--danger': '#ff8fb1', '--success': '#8ecbff' },
+  'ocean': { '--bg': '#f2f9ff', '--surface': '#ffffff', '--surface2': '#e9f4ff', '--border': '#cfe3f6', '--text': '#1f3f5b', '--text-muted': '#5d7f9b', '--accent': '#3b82f6', '--accent-light': '#dbeafe', '--danger': '#ef4444', '--success': '#0ea5e9' },
+  'retro': { '--bg': '#e9ddc7', '--surface': '#ecd9bb', '--surface2': '#dcc39b', '--border': '#b89a6b', '--text': '#433321', '--text-muted': '#70593f', '--accent': '#9a5a16', '--accent-light': '#e7c88f', '--danger': '#b45309', '--success': '#58751a' },
+  'greyscale-light': { '--bg': '#f7f7f8', '--surface': '#ffffff', '--surface2': '#f1f1f2', '--border': '#d9d9db', '--text': '#242426', '--text-muted': '#6d6d72', '--accent': '#737373', '--accent-light': '#e4e4e7', '--danger': '#a3a3a3', '--success': '#525252' },
+  'matcha': { '--bg': '#f2fde8', '--surface': '#f7fff0', '--surface2': '#e8f7d8', '--border': '#bfdca3', '--text': '#2f4a22', '--text-muted': '#5f7f4b', '--accent': '#65a30d', '--accent-light': '#d9f2b4', '--danger': '#9a7b4f', '--success': '#4d7c0f' },
+  'custom-light': null
+};
+
+const DARK_THEME_PRESETS = {
+  'default-dark': { ...BASE_DARK_THEME, '--accent': '#8b85ff', '--accent-light': '#1f2a3b', '--success': '#2dd4bf' },
+  'halloween': { '--bg': '#1a1224', '--surface': '#241532', '--surface2': '#2f1d3f', '--border': '#4b2f61', '--text': '#f7f0ff', '--text-muted': '#c7afd8', '--accent': '#f97316', '--accent-light': '#3f2a21', '--danger': '#ef4444', '--success': '#84cc16' },
+  'valentine-dark': { '--bg': '#2a1020', '--surface': '#35162b', '--surface2': '#432039', '--border': '#6b2d57', '--text': '#ffe6f2', '--text-muted': '#d9a8c4', '--accent': '#ec4899', '--accent-light': '#5a2344', '--danger': '#fb7185', '--success': '#f472b6' },
+  'hacker': { '--bg': '#060806', '--surface': '#0c120c', '--surface2': '#101a10', '--border': '#214421', '--text': '#c4ffc4', '--text-muted': '#79cc79', '--accent': '#84cc16', '--accent-light': '#1d2f12', '--danger': '#22c55e', '--success': '#a3e635' },
+  'christmas': { '--bg': '#101a12', '--surface': '#18241a', '--surface2': '#223126', '--border': '#3b5a3f', '--text': '#f9f5e6', '--text-muted': '#d6c9a7', '--accent': '#facc15', '--accent-light': '#3a361a', '--danger': '#8b1e3f', '--success': '#16a34a' },
+  'greyscale-dark': { '--bg': '#121212', '--surface': '#1d1d1d', '--surface2': '#262626', '--border': '#3f3f46', '--text': '#e5e5e5', '--text-muted': '#a1a1aa', '--accent': '#9ca3af', '--accent-light': '#2f3238', '--danger': '#d4d4d8', '--success': '#a3a3a3' },
+  'forest': { '--bg': '#0f1a14', '--surface': '#16251c', '--surface2': '#1d3025', '--border': '#32513f', '--text': '#def3e3', '--text-muted': '#9fc4aa', '--accent': '#22c55e', '--accent-light': '#1b3528', '--danger': '#65a30d', '--success': '#4ade80' },
+  'mystic': { '--bg': '#1b1226', '--surface': '#261934', '--surface2': '#342244', '--border': '#53356f', '--text': '#ffe8f7', '--text-muted': '#d3add2', '--accent': '#c084fc', '--accent-light': '#3b2a4f', '--danger': '#f472b6', '--success': '#a78bfa' },
+  'dark-rainbow': {
+    '--bg': '#661827',         // dark red (~40%)
+    '--surface': '#663300',    // dark orange
+    '--surface2': '#666000',   // dark yellow
+    '--border': '#406600',     // dark yellow-green
+    '--text': '#006629',       // dark green
+    '--text-muted': '#00665a', // dark green-blue
+    '--accent': '#004266',     // dark blue
+    '--accent-light': '#2a0066', // dark blue-purple
+    '--danger': '#480066',     // dark purple
+    '--success': '#661f57'     // dark pink
+  },
+  'night-glow': { '--bg': '#1F1E2F', '--surface': '#2E3360', '--surface2': '#3d4273', '--border': '#6B79FF', '--text': '#FBEAFF', '--text-muted': '#F295C6', '--accent': '#9EE6CF', '--accent-light': '#2f3a58', '--danger': '#F295C6', '--success': '#9EE6CF' },
+  'custom-dark': null
+};
+
+let selectedLightThemeKey = 'default-light';
+let selectedDarkThemeKey = 'default-dark';
+
+function applyThemePalette(palette) {
+  const root = document.documentElement;
+  Object.entries(palette.light).forEach(([cssVar, val]) => {
+    root.style.setProperty(cssVar, val);
+  });
+
+  let styleTag = document.getElementById('themeOverrideStyle');
+  if (!styleTag) {
+    styleTag = document.createElement('style');
+    styleTag.id = 'themeOverrideStyle';
+    document.head.appendChild(styleTag);
+  }
+
+  const darkVars = Object.entries(palette.dark)
+    .map(([cssVar, val]) => `${cssVar}:${val};`)
+    .join(' ');
+  styleTag.textContent = `body.dark { ${darkVars} }`;
+}
+
+function renderThemeTokenGrid(mode, container) {
+  if (!container) return;
+  const palette = mode === 'light' ? customThemeTokens.light : customThemeTokens.dark;
+  container.innerHTML = THEME_TOKEN_META.map((token) => {
+    const value = normalizeHexColor(palette[token.key], mode === 'light' ? '#6c63ff' : '#8b85ff');
+    return `
+      <div class="theme-token-field">
+        <input type="color" data-theme-mode="${mode}" data-theme-key="${token.key}" value="${value}" title="${escapeHtml(token.label)}" />
+        <input type="text" class="setting-input" data-theme-mode="${mode}" data-theme-key="${token.key}" value="${escapeHtml(value)}" title="${escapeHtml(token.label)}" />
+      </div>
+    `;
+  }).join('');
+}
+
+function renderThemePreview(palette) {
+  const themePreviewGrid = document.getElementById('themePreviewGrid');
+  if (!themePreviewGrid) return;
+
+  const mode = document.body.classList.contains('dark') ? 'dark' : 'light';
+  const activePalette = (palette && palette[mode]) || (mode === 'dark' ? BASE_DARK_THEME : BASE_LIGHT_THEME);
+
+  themePreviewGrid.innerHTML = THEME_TOKEN_META.map((token) => {
+    const value = activePalette[token.key] || '#000000';
+    return `
+      <div class="theme-preview-chip">
+        <div class="theme-preview-swatch" style="background:${escapeHtml(value)}"></div>
+        <div class="theme-preview-meta">
+          <strong>${escapeHtml(token.label)}</strong>
+          <span>${escapeHtml(value)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function syncThemeTokenInputs(container) {
+  if (!container) return;
+  container.querySelectorAll('input[type="color"][data-theme-key]').forEach((picker) => {
+    const mode = picker.getAttribute('data-theme-mode');
+    const key = picker.getAttribute('data-theme-key');
+    const textInput = container.querySelector(`input[type="text"][data-theme-mode="${mode}"][data-theme-key="${key}"]`);
+    if (!textInput) return;
+
+    picker.addEventListener('input', () => {
+      textInput.value = picker.value;
+    });
+
+    textInput.addEventListener('input', () => {
+      const val = textInput.value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(val)) picker.value = val;
+    });
+  });
+}
+
+function applyThemeSelection() {
+  const lightTheme = selectedLightThemeKey === 'custom-light'
+    ? customThemeTokens.light
+    : (LIGHT_THEME_PRESETS[selectedLightThemeKey] || LIGHT_THEME_PRESETS['default-light']);
+  const darkTheme = selectedDarkThemeKey === 'custom-dark'
+    ? customThemeTokens.dark
+    : (DARK_THEME_PRESETS[selectedDarkThemeKey] || DARK_THEME_PRESETS['default-dark']);
+
+  const palette = { light: lightTheme, dark: darkTheme };
+  applyThemePalette(palette);
+  renderThemePreview(palette);
+
+  const customRow = document.getElementById('customThemeTokensRow');
+  const customEnabled = selectedLightThemeKey === 'custom-light' || selectedDarkThemeKey === 'custom-dark';
+  if (customRow) customRow.hidden = !customEnabled;
+
+  if (customEnabled) {
+    renderThemeTokenGrid('light', customLightTokenGrid);
+    renderThemeTokenGrid('dark', customDarkTokenGrid);
+    syncThemeTokenInputs(customLightTokenGrid);
+    syncThemeTokenInputs(customDarkTokenGrid);
+  }
+}
+
+const lightThemeSelect = document.getElementById('lightThemeSelect');
+const darkThemeSelect = document.getElementById('darkThemeSelect');
+
+if (lightThemeSelect) {
+  lightThemeSelect.value = selectedLightThemeKey;
+  lightThemeSelect.addEventListener('change', () => {
+    selectedLightThemeKey = lightThemeSelect.value;
+    // Picking a light preset should immediately preview in light mode.
+    setDarkMode(false);
+    applyThemeSelection();
+  });
+}
+
+if (darkThemeSelect) {
+  darkThemeSelect.value = selectedDarkThemeKey;
+  darkThemeSelect.addEventListener('change', () => {
+    selectedDarkThemeKey = darkThemeSelect.value;
+    // Picking a dark preset should immediately preview in dark mode.
+    setDarkMode(true);
+    applyThemeSelection();
+  });
+}
+
+const customLightTokenGrid = document.getElementById('customLightTokenGrid');
+const customDarkTokenGrid = document.getElementById('customDarkTokenGrid');
+const applyCustomThemeTokensBtn = document.getElementById('applyCustomThemeTokensBtn');
+
+if (applyCustomThemeTokensBtn) {
+  applyCustomThemeTokensBtn.addEventListener('click', () => {
+    const readTokens = (mode, container, base) => {
+      const next = { ...base };
+      if (!container) return next;
+      THEME_TOKEN_META.forEach((token) => {
+        const input = container.querySelector(`input[type="text"][data-theme-mode="${mode}"][data-theme-key="${token.key}"]`);
+        if (!input) return;
+        next[token.key] = normalizeHexColor(input.value.trim(), base[token.key]);
+      });
+      return next;
+    };
+
+    customThemeTokens = {
+      light: readTokens('light', customLightTokenGrid, customThemeTokens.light),
+      dark: readTokens('dark', customDarkTokenGrid, customThemeTokens.dark)
+    };
+
+    // If user selected custom preset for one mode, preview in that mode immediately.
+    if (selectedDarkThemeKey === 'custom-dark' && selectedLightThemeKey !== 'custom-light') {
+      setDarkMode(true);
+    } else if (selectedLightThemeKey === 'custom-light' && selectedDarkThemeKey !== 'custom-dark') {
+      setDarkMode(false);
+    }
+
+    applyThemeSelection();
+  });
+}
+
+// --- Hub Info ---
+const hubSettings = { name: 'System Hub', description: '', icon: '' };
+const appTitle     = document.getElementById('appTitle');
+const hubNameInput = document.getElementById('hubNameInput');
+const hubDescInput = document.getElementById('hubDescInput');
+const hubIconInput = document.getElementById('hubIconInput');
+const saveHubInfoBtn = document.getElementById('saveHubInfoBtn');
+const termHeadmatesInput = document.getElementById('termHeadmatesInput');
+const termSystemInput = document.getElementById('termSystemInput');
+const termSubsystemInput = document.getElementById('termSubsystemInput');
+const termInnerworldInput = document.getElementById('termInnerworldInput');
+const termPartnersInput = document.getElementById('termPartnersInput');
+const saveTerminologyBtn = document.getElementById('saveTerminologyBtn');
+
+function applyHubInfo() {
+  const display = (hubSettings.icon ? hubSettings.icon + ' ' : '') + (hubSettings.name || 'System Hub');
+  if (appTitle) appTitle.textContent = display;
+  document.title = hubSettings.name || 'System Hub';
+}
+
+function applyTerminology() {
+  const setText = (selector, value) => {
+    const el = document.querySelector(selector);
+    if (el) el.textContent = value;
+  };
+
+  if (termHeadmatesInput) termHeadmatesInput.value = getTermLabel('headmates');
+  if (termSystemInput) termSystemInput.value = getTermLabel('system');
+  if (termSubsystemInput) termSubsystemInput.value = getTermLabel('subsystem');
+  if (termInnerworldInput) termInnerworldInput.value = getTermLabel('innerworld');
+  if (termPartnersInput) termPartnersInput.value = getTermLabel('partners');
+
+  setText('.nav-item[data-module="parts"] .nav-label', getTermLabel('headmates'));
+  setText('.nav-item[data-module="system"] .nav-label', getTermLabel('system'));
+  setText('.nav-item[data-module="friends"] .nav-label', getTermLabel('partners'));
+  setText('.nav-item[data-module="partners"] .nav-label', getTermLabel('subsystem'));
+  setText('.nav-item[data-module="journal"] .nav-label', `${getTermLabel('system')} Journal`);
+  setText('.nav-item[data-module="chat"] .nav-label', `${getTermLabel('innerworld')} Chat`);
+  setText('.nav-item[data-module="notifications"] .nav-label', getTermLabel('innerworld'));
+
+  setText('#page-parts .page-header h1', getTermLabel('headmates'));
+  setText('#page-system .page-header h1', getTermLabel('system'));
+  setText('#page-friends .page-header h1', getTermLabel('partners'));
+  setText('#page-partners .page-header h1', getTermLabel('subsystem'));
+  setText('#page-journal .page-header h1', `${getTermLabel('system')} Journal`);
+  setText('#page-chat .page-header h1', `${getTermLabel('innerworld')} Chat`);
+  setText('#page-notifications .page-header h1', getTermLabel('innerworld'));
+
+  setText('#headmateProfile .headmate-kicker', `${getSingularTerm('headmates')} Profile`);
+  setText('#partnerProfile .headmate-kicker', `${getSingularTerm('partners')} Profile`);
+  setText('#subsystemProfile .headmate-kicker', getSingularTerm('subsystem'));
+
+  if (addHeadmateBtn) addHeadmateBtn.textContent = `+ Add ${getSingularTerm('headmates')}`;
+  if (bulkAddHeadmatesBtn) bulkAddHeadmatesBtn.textContent = `Bulk Add ${getTermLabel('headmates')}`;
+  if (linkHeadmateSubsystemBtn) linkHeadmateSubsystemBtn.textContent = `Link ${getSingularTerm('subsystem')}`;
+  if (linkHeadmateBtn) linkHeadmateBtn.textContent = `+ Link ${getSingularTerm('headmates')}`;
+  document.querySelector('.quick-btn[data-module="journal"]')?.replaceChildren(document.createTextNode(`${getTermLabel('system')} Journal`));
+
+  setText('#partnerHeadmatesHub .subsystem-hub-header h3', `Their ${getTermLabel('headmates')}`);
+
+  const privacyHeadmatesRow = document.getElementById('privHeadmatesVisible')?.closest('.setting-row');
+  if (privacyHeadmatesRow?.firstElementChild) privacyHeadmatesRow.firstElementChild.textContent = `Show ${getSingularTerm('headmates').toLowerCase()} profiles to all users`;
+  const privacyPartnersRow = document.getElementById('privPartnersVisible')?.closest('.setting-row');
+  if (privacyPartnersRow?.firstElementChild) privacyPartnersRow.firstElementChild.textContent = `Show ${getSingularTerm('partners').toLowerCase()} profiles to all users`;
+  const privacyLocationsRow = document.getElementById('privLocationsVisible')?.closest('.setting-row');
+  if (privacyLocationsRow?.firstElementChild) privacyLocationsRow.firstElementChild.textContent = `Show ${getTermLabel('innerworld').toLowerCase()} to all users`;
+
+  renderDashboard();
+}
+
+
+if (saveHubInfoBtn) {
+  saveHubInfoBtn.addEventListener('click', () => {
+    hubSettings.name        = (hubNameInput?.value || '').trim() || 'System Hub';
+    hubSettings.description = (hubDescInput?.value || '').trim();
+    hubSettings.icon        = (hubIconInput?.value || '').trim();
+    applyHubInfo();
+    safeAlert('Hub info saved.');
+  });
+}
+
+if (saveTerminologyBtn) {
+  saveTerminologyBtn.addEventListener('click', () => {
+    terminologySettings.headmates = (termHeadmatesInput?.value || '').trim() || DEFAULT_TERMINOLOGY.headmates;
+    terminologySettings.system = (termSystemInput?.value || '').trim() || DEFAULT_TERMINOLOGY.system;
+    terminologySettings.subsystem = (termSubsystemInput?.value || '').trim() || DEFAULT_TERMINOLOGY.subsystem;
+    terminologySettings.innerworld = (termInnerworldInput?.value || '').trim() || DEFAULT_TERMINOLOGY.innerworld;
+    terminologySettings.partners = (termPartnersInput?.value || '').trim() || DEFAULT_TERMINOLOGY.partners;
+    applyTerminology();
+    if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+    if (typeof renderPartnersTable === 'function') renderPartnersTable();
+    if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
+    safeAlert('Terminology updated.');
+  });
+}
+
+// Pre-fill hub info fields from current state
+if (hubNameInput) hubNameInput.value = hubSettings.name;
+
+// --- Privacy & Safety ---
+const privacySettings = {
+  frontTracking:    true,
+  headmatesVisible: true,
+  healthVisible:    false,
+  journalVisible:   false,
+  partnersVisible:  true,
+  historyVisible:   true,
+  locationsVisible: true,
+  cwDefault:        true,
+  deleteConfirm:    true
+};
+
+const privacyToggleIds = [
+  ['privFrontTracking',    'frontTracking'],
+  ['privHeadmatesVisible', 'headmatesVisible'],
+  ['privHealthVisible',    'healthVisible'],
+  ['privJournalVisible',   'journalVisible'],
+  ['privPartnersVisible',  'partnersVisible'],
+  ['privHistoryVisible',   'historyVisible'],
+  ['privLocationsVisible', 'locationsVisible'],
+  ['privCWDefault',        'cwDefault'],
+  ['privDeleteConfirm',    'deleteConfirm']
+];
+
+privacyToggleIds.forEach(([id, key]) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.checked = privacySettings[key];
+  el.addEventListener('change', () => { privacySettings[key] = el.checked; });
+});
+
+// --- Notifications ---
+const notificationSettings = {
+  journal:        true,
+  meds:           true,
+  chat:           true,
+  history:        false,
+  profileChanges: false
+};
+
+const notifToggleIds = [
+  ['notifJournal',        'journal'],
+  ['notifMeds',           'meds'],
+  ['notifChat',           'chat'],
+  ['notifHistory',        'history'],
+  ['notifProfileChanges', 'profileChanges']
+];
+
+notifToggleIds.forEach(([id, key]) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.checked = notificationSettings[key];
+  el.addEventListener('change', () => { notificationSettings[key] = el.checked; });
+});
+
+// --- Data Export & Clear ---
+const exportDataBtn = document.getElementById('exportDataBtn');
+const clearDataBtn  = document.getElementById('clearDataBtn');
+
+if (exportDataBtn) {
+  exportDataBtn.addEventListener('click', () => {
+    const dump = {
+      exportedAt: new Date().toISOString(),
+      hubSettings,
+      privacySettings,
+      notificationSettings,
+      terminologySettings,
+      systemProfiles,
+      headmateProfilesByUser,
+      partnerProfiles,
+      itemProfiles,
+      locationProfiles,
+      historyEvents,
+      customTemplates,
+      accounts: Object.fromEntries(
+        Object.entries(accounts).map(([k, v]) => [k, { ...v, password: '[redacted]' }])
+      )
+    };
+    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `ispd7-export-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+if (clearDataBtn) {
+  clearDataBtn.addEventListener('click', () => {
+    if (!safeConfirm('Clear ALL local hub data? This cannot be undone and will reset the page.')) return;
+    localStorage.clear();
+    location.reload();
+  });
+}
+
+applyTerminology();
+applyThemeSelection();
+
+if (systemEditColorPicker && systemEditColor) {
+  systemEditColorPicker.addEventListener('input', () => {
+    systemEditColor.value = systemEditColorPicker.value;
+  });
+  systemEditColor.addEventListener('input', () => {
+    const val = systemEditColor.value.trim();
+    if (/^#[0-9a-fA-F]{6}$/.test(val)) systemEditColorPicker.value = val;
+  });
+}

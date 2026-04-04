@@ -1,0 +1,1016 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="A customizable system hub for profiles, journaling, chat, tracking, and innerworld organization." />
+  <title>DID System Hub</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle Sidebar">&#9776;</button>
+      <span class="app-title" id="appTitle">System Hub</span>
+    </div>
+    <div class="topbar-center">
+      <div class="search-bar">
+        <input type="text" placeholder="Search..." />
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="user-switcher" id="userSwitcherBtn">
+        <div class="avatar" id="currentAvatar">A</div>
+        <span class="username" id="currentUsername">Alice</span>
+        <span class="chevron">&#9662;</span>
+      </div>
+      <div class="user-dropdown" id="userDropdown">
+        <div class="user-option active" data-user="Alice" data-initial="A" data-color="#6c63ff">
+          <div class="avatar" style="background:#6c63ff">A</div>
+          <span>Alice</span>
+        </div>
+        <div class="user-option" data-user="Bob" data-initial="B" data-color="#ff6584">
+          <div class="avatar" style="background:#ff6584">B</div>
+          <span>Bob</span>
+        </div>
+        <div class="user-option" data-user="Carol" data-initial="C" data-color="#43d9ad">
+          <div class="avatar" style="background:#43d9ad">C</div>
+          <span>Carol</span>
+        </div>
+        <div class="user-option" data-user="Dan" data-initial="D" data-color="#f5a623">
+          <div class="avatar" style="background:#f5a623">D</div>
+          <span>Dan</span>
+        </div>
+        <hr />
+        <div class="user-option add-user" id="addUserBtn">
+          <div class="avatar" style="background:#888">+</div>
+          <span>Add User</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Layout -->
+  <div class="layout">
+
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+      <ul class="sidebar-nav">
+        <li class="nav-item active" data-module="dashboard">
+          <span class="nav-icon">&#9783;</span>
+          <span class="nav-label">Dashboard</span>
+        </li>
+        <li class="nav-item" data-module="parts">
+          <span class="nav-icon">&#9874;</span>
+          <span class="nav-label">Headmates</span>
+        </li>
+        <li class="nav-item" data-module="system">
+          <span class="nav-icon">&#9881;</span>
+          <span class="nav-label">System</span>
+        </li>
+        <li class="nav-item" data-module="friends">
+          <span class="nav-icon">&#9786;</span>
+          <span class="nav-label">Partners</span>
+        </li>
+        <li class="nav-item" data-module="partners">
+          <span class="nav-icon">&#9993;</span>
+          <span class="nav-label">Subsystems</span>
+        </li>
+        <li class="nav-item" data-module="items">
+          <span class="nav-icon">&#10003;</span>
+          <span class="nav-label">Items</span>
+        </li>
+        <li class="nav-item" data-module="journal">
+          <span class="nav-icon">&#9998;</span>
+          <span class="nav-label">System Journal</span>
+        </li>
+        <li class="nav-item" data-module="chat">
+          <span class="nav-icon">&#128172;</span>
+          <span class="nav-label">Inner Chat</span>
+        </li>
+        <li class="nav-item" data-module="messages">
+          <span class="nav-icon">&#9993;</span>
+          <span class="nav-label">Messages</span>
+        </li>
+        <li class="nav-item" data-module="health">
+          <span class="nav-icon">&#10084;</span>
+          <span class="nav-label">Health</span>
+        </li>
+        <li class="nav-item" data-module="switchboard">
+          <span class="nav-icon">&#9654;</span>
+          <span class="nav-label">Rules</span>
+        </li>
+        <li class="nav-item" data-module="gallery">
+          <span class="nav-icon">&#128247;</span>
+          <span class="nav-label">Media Library</span>
+        </li>
+        <li class="nav-item" data-module="templates">
+          <span class="nav-icon">&#128196;</span>
+          <span class="nav-label">Templates</span>
+        </li>
+        <li class="nav-item" data-module="calendar">
+          <span class="nav-icon">&#128197;</span>
+          <span class="nav-label">History</span>
+        </li>
+        <li class="nav-item" data-module="notifications">
+          <span class="nav-icon">&#128276;</span>
+          <span class="nav-label">Innerworld</span>
+        </li>
+        <li class="nav-item" data-module="profile">
+          <span class="nav-icon">&#128100;</span>
+          <span class="nav-label">Member Profile</span>
+        </li>
+        <li class="nav-item" data-module="settings">
+          <span class="nav-icon">&#9881;</span>
+          <span class="nav-label">Settings</span>
+        </li>
+      </ul>
+    </nav>
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+    <!-- Main Content -->
+    <main class="main-content" id="mainContent">
+
+      <!-- Each module is a full page -->
+      <section class="module-page active" id="page-dashboard">
+        <div class="page-header"><h1>Dashboard</h1></div>
+        <div class="page-body">
+          <section class="dashboard-hero">
+            <div class="dashboard-hero-copy">
+              <p class="dashboard-hero-kicker">System snapshot</p>
+              <h2 id="dashboardHeroTitle">Welcome back</h2>
+              <p id="dashboardHeroSubtitle">A visual overview of your system, account completion, and recent activity.</p>
+            </div>
+            <div class="dashboard-hero-metrics">
+              <div class="dashboard-hero-chip">
+                <strong id="dashboardCompletionAverage">0</strong>
+                <span>Complete profiles</span>
+              </div>
+              <div class="dashboard-hero-chip">
+                <strong id="dashboardPreviewCount">0</strong>
+                <span>Sections tracked</span>
+              </div>
+            </div>
+          </section>
+
+          <div class="card-grid">
+            <div class="card"><h3>Systems</h3><p class="stat" id="dashboardActiveMembersStat">4</p></div>
+            <div class="card"><h3>Headmates</h3><p class="stat" id="dashboardHeadmatesStat">128</p></div>
+            <div class="card"><h3>Unread Messages</h3><p class="stat" id="dashboardUnreadMessagesStat">47</p></div>
+            <div class="card"><h3>History Events</h3><p class="stat" id="dashboardHistoryEventsStat">12</p></div>
+          </div>
+
+          <div class="widget-row">
+            <div class="widget">
+              <h3>Completion Breakdown</h3>
+              <div class="dashboard-chart-panel" id="dashboardCompletionChart"></div>
+            </div>
+            <div class="widget">
+              <h3>System Activity Chart</h3>
+              <div class="dashboard-chart-panel" id="dashboardActivityChart"></div>
+            </div>
+          </div>
+
+          <div class="widget-row">
+            <div class="widget">
+              <h3>Category Pie Chart</h3>
+              <div class="dashboard-chart-panel" id="dashboardCategoryPieChart"></div>
+            </div>
+            <div class="widget">
+              <h3>Communication Pie Chart</h3>
+              <div class="dashboard-chart-panel" id="dashboardCommunicationPieChart"></div>
+            </div>
+          </div>
+
+          <div class="widget-row">
+            <div class="widget">
+              <h3>Account Completion</h3>
+              <div class="dashboard-completion-list" id="dashboardCompletionList"></div>
+            </div>
+            <div class="widget">
+              <h3>Recent Field Activity</h3>
+              <ul class="activity-list" id="dashboardActivityList">
+                <li><span class="badge">System</span> Loading recent activity…</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="widget-row">
+            <div class="widget">
+              <h3>Quick Links</h3>
+              <div class="quick-links">
+                <button class="quick-btn" data-module="chat">Inner Chat</button>
+                <button class="quick-btn" data-module="journal">System Journal</button>
+                <button class="quick-btn" data-module="calendar">History</button>
+                <button class="quick-btn" data-module="gallery">Media Library</button>
+              </div>
+            </div>
+            <div class="widget">
+              <h3>Tab Previews</h3>
+              <div class="dashboard-preview-grid" id="dashboardModulePreviewGrid"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-parts">
+        <div class="page-header"><h1>Headmates</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search headmates or tags..." class="table-search" id="headmatesSearchInput" />
+            <select class="setting-input" id="headmateFolderFilter">
+              <option value="all">All Folders</option>
+            </select>
+            <select class="setting-input" id="headmateSubfolderFilter">
+              <option value="all">All Subfolders</option>
+            </select>
+            <button class="btn-sm" id="manageHeadmateFoldersBtn" type="button">Manage Folders</button>
+            <button class="btn-primary" id="addHeadmateBtn" type="button">+ Add Headmate</button>
+            <button class="btn-sm" id="addHeadmateFromTemplateBtn" type="button">+ From Template</button>
+            <button class="btn-sm" id="bulkAddHeadmatesBtn" type="button">Bulk Add Headmates</button>
+          </div>
+          <div class="headmate-folder-browser">
+            <div class="headmate-folder-browser-head">
+              <h3>Folder Browser</h3>
+              <p class="headmate-hint">Click a folder or subfolder to filter the headmates list. Tags stay separate from folder placement.</p>
+            </div>
+            <div class="headmate-folder-tree" id="headmateFolderTree"></div>
+            <datalist id="headmateFolderOptions"></datalist>
+            <datalist id="headmateSubfolderOptions"></datalist>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>Headmate</th><th>Role</th><th>Folder Path</th></tr></thead>
+            <tbody>
+            </tbody>
+          </table>
+          <p class="headmate-hint">Select a headmate row to expand the full profile.</p>
+          <section class="headmate-profile" id="headmateProfile" hidden>
+            <div class="headmate-profile-banner" id="headmateBanner">
+              <div class="headmate-photo" id="headmatePhoto">A</div>
+              <div class="headmate-banner-meta">
+                <p class="headmate-kicker">Headmate Profile</p>
+                <h2 id="headmateName">Alex</h2>
+                <p id="headmateMeta">Pronouns TBD • Main role TBD</p>
+              </div>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-sm" id="editHeadmateBtn" type="button">Edit</button>
+              <button class="btn-sm" id="linkHeadmateSubsystemBtn" type="button">Link Subsystem</button>
+              <button class="btn-sm" id="linkHeadmateProfileBtn" type="button">Link Profile</button>
+              <button class="btn-primary" id="saveHeadmateBtn" type="button" disabled>Save</button>
+              <button class="btn-sm" id="deleteHeadmateBtn" type="button">Delete</button>
+            </div>
+            <div class="profile-editor" id="headmateEditor" hidden>
+              <h4>Edit Headmate</h4>
+              <div class="profile-editor-grid" id="headmateEditorFields"></div>
+            </div>
+            <div class="headmate-profile-grid" id="headmateProfileGrid"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-system">
+        <div class="page-header"><h1>System</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <button class="btn-primary" id="addSystemProfileBtn" type="button">+ Add Profile</button>
+            <button class="btn-sm" id="addSystemFromTemplateBtn" type="button">+ From Template</button>
+          </div>
+          <p class="headmate-hint">User profiles include name, nickname, description, color, banner, and profile photo. Use Switch Account to activate one.</p>
+          <div class="system-profiles-grid" id="systemProfilesGrid"></div>
+          <div class="profile-editor" id="systemProfileEditor" hidden>
+            <h4>Edit System Profile</h4>
+            <div class="profile-editor-grid">
+              <label>Name<input class="setting-input" id="systemEditName" type="text" /></label>
+              <label>Nickname<input class="setting-input" id="systemEditNickname" type="text" /></label>
+              <label>Color
+                <div class="color-input-row">
+                  <input class="setting-input" id="systemEditColor" type="text" placeholder="#6c63ff" />
+                  <input id="systemEditColorPicker" type="color" value="#6c63ff" />
+                </div>
+              </label>
+              <label>Banner<input class="setting-input" id="systemEditBanner" type="text" placeholder="Banner text or image/GIF URL" /></label>
+              <label>Profile Photo<input class="setting-input" id="systemEditPhoto" type="text" placeholder="Letter or image/GIF URL" /></label>
+              <label>Description<input class="setting-input" id="systemEditDescription" type="text" /></label>
+              <label>Tags<input class="setting-input" id="systemEditTags" type="text" placeholder="Comma-separated tags" /></label>
+              <label>Custom Fields<textarea class="setting-input" id="systemEditCustomFields" placeholder="Favorite drink: Tea&#10;Safe snack: Crackers"></textarea></label>
+              <label>Trust Level
+                <select class="setting-input" id="systemEditTrustLevel">
+                  <option value="public">Public</option>
+                  <option value="friends">Friends</option>
+                  <option value="trusted">Trusted</option>
+                  <option value="partners">Partners</option>
+                  <option value="private" selected>Private</option>
+                </select>
+              </label>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-primary" id="saveSystemEditorBtn" type="button">Save</button>
+              <button class="btn-sm" id="cancelSystemEditorBtn" type="button">Cancel</button>
+            </div>
+          </div>
+          <div class="widget">
+            <h3>Current Account</h3>
+            <div class="profile-card" style="margin:0">
+              <div class="avatar xl" id="systemActiveAvatar" style="background:#6c63ff">A</div>
+              <div class="profile-info">
+                <h2 id="systemActiveName">Alice</h2>
+                <p>Active account in this session</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-friends">
+        <div class="page-header"><h1>Partners</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search partners..." class="table-search" />
+            <button class="btn-primary" id="addPartnerBtn" type="button">+ Add Partner</button>
+            <button class="btn-sm" id="addPartnerFromTemplateBtn" type="button">+ From Template</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>Partner</th><th>Primary Type</th></tr></thead>
+            <tbody id="partnersTableBody"></tbody>
+          </table>
+          <p class="headmate-hint">Global partner tracker with multiple relationship types. This list is not per-user.</p>
+          <section class="partners-diagram" id="partnersDiagramPanel">
+            <div class="partners-diagram-head">
+              <h3>Relationship Diagram</h3>
+              <button class="btn-sm" id="partnersDiagramRefreshBtn" type="button">Refresh Diagram</button>
+            </div>
+            <div class="partners-diagram-canvas" id="partnersDiagramCanvas"></div>
+          </section>
+          <section class="headmate-profile" id="partnerProfile" hidden>
+            <div class="headmate-profile-banner" id="partnerBanner">
+              <div class="headmate-photo" id="partnerPhoto">P</div>
+              <div class="headmate-banner-meta">
+                <p class="headmate-kicker">Partner Profile</p>
+                <h2 id="partnerName">Partner</h2>
+                <p id="partnerMeta">Type • Status</p>
+              </div>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-sm" id="editPartnerBtn" type="button">Edit</button>
+              <button class="btn-sm" id="linkPartnerAccountBtn" type="button">Link Account</button>
+              <button class="btn-sm" id="linkPartnerAlterBtn" type="button">Link Alter</button>
+              <button class="btn-sm" id="linkPartnerProfileBtn" type="button">Link Profile</button>
+              <button class="btn-sm" id="addPartnerHeadmateBtn" type="button">+ Their Headmate</button>
+              <button class="btn-primary" id="savePartnerBtn" type="button" disabled>Save</button>
+              <button class="btn-sm" id="deletePartnerBtn" type="button">Delete</button>
+            </div>
+            <div class="profile-editor" id="partnerEditor" hidden>
+              <h4>Edit Partner</h4>
+              <div class="profile-editor-grid" id="partnerEditorFields"></div>
+            </div>
+            <div class="headmate-profile-grid" id="partnerProfileGrid"></div>
+            <div class="subsystem-hub" id="partnerHeadmatesHub">
+              <div class="subsystem-hub-header">
+                <h3>Their Headmates</h3>
+                <p class="headmate-hint">Track the partner's own headmates and linked alters here.</p>
+              </div>
+              <div class="subsystem-hub-list" id="partnerHeadmatesList"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-partners">
+        <div class="page-header"><h1>Subsystems</h1></div>
+        <div class="page-body">
+          <p class="headmate-hint">Subsystems are per-user. Create a subsystem, give it a mini profile, then link headmates to its hub to define membership.</p>
+          <div class="toolbar">
+            <button class="btn-primary" id="addSubsystemBtn" type="button">+ Add Subsystem</button>
+            <button class="btn-sm" id="addSubsystemFromTemplateBtn" type="button">+ From Template</button>
+          </div>
+          <div class="subsystems-grid" id="subsystemsGrid"></div>
+
+          <section class="headmate-profile" id="subsystemProfile" hidden>
+            <div class="headmate-profile-banner" id="subsystemBanner">
+              <div class="headmate-photo" id="subsystemPhoto">S</div>
+              <div class="headmate-banner-meta">
+                <p class="headmate-kicker">Subsystem</p>
+                <h2 id="subsystemName">Subsystem</h2>
+                <p id="subsystemMeta">0 headmates linked</p>
+              </div>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-sm" id="editSubsystemBtn" type="button">Edit</button>
+              <button class="btn-sm" id="linkSubsystemProfileBtn" type="button">Link Profile</button>
+              <button class="btn-primary" id="saveSubsystemBtn" type="button" disabled>Save</button>
+              <button class="btn-sm" id="deleteSubsystemBtn" type="button">Delete</button>
+            </div>
+            <div class="profile-editor" id="subsystemEditor" hidden>
+              <h4>Edit Subsystem</h4>
+              <div class="profile-editor-grid" id="subsystemEditorFields"></div>
+            </div>
+            <div class="headmate-profile-grid" id="subsystemProfileGrid"></div>
+            <div class="subsystem-hub" id="subsystemHub">
+              <div class="subsystem-hub-header">
+                <h3>Headmate Hub</h3>
+                <button class="btn-sm" id="linkHeadmateBtn" type="button">+ Link Headmate</button>
+              </div>
+              <div class="subsystem-link-picker" id="subsystemLinkPicker" hidden>
+                <select class="setting-input" id="subsystemLinkSelect"></select>
+                <button class="btn-primary" id="subsystemLinkConfirmBtn" type="button">Link</button>
+                <button class="btn-sm" id="subsystemLinkCancelBtn" type="button">Cancel</button>
+              </div>
+              <div class="subsystem-hub-list" id="subsystemHubList"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-items">
+        <div class="page-header"><h1>Items</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search items..." class="table-search" id="itemsSearch" />
+            <button class="btn-primary" id="addItemBtn" type="button">+ Add Item</button>
+            <button class="btn-sm" id="addItemFromTemplateBtn" type="button">+ From Template</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>Name</th><th>Tag</th></tr></thead>
+            <tbody id="itemsTableBody"></tbody>
+          </table>
+          <p class="headmate-hint">Click an item row to expand its full profile.</p>
+          <section class="headmate-profile" id="itemProfile" hidden>
+            <div class="headmate-profile-banner" id="itemBanner">
+              <div class="headmate-photo" id="itemPhoto">I</div>
+              <div class="headmate-banner-meta">
+                <p class="headmate-kicker">Item Profile</p>
+                <h2 id="itemName">Item</h2>
+                <p id="itemMeta">Tag • Alters</p>
+              </div>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-sm" id="editItemBtn" type="button">Edit</button>
+              <button class="btn-sm" id="linkItemProfileBtn" type="button">Link Profile</button>
+              <button class="btn-primary" id="saveItemBtn" type="button" disabled>Save</button>
+              <button class="btn-sm" id="deleteItemBtn" type="button">Delete</button>
+            </div>
+            <div class="profile-editor" id="itemEditor" hidden>
+              <h4>Edit Item</h4>
+              <div class="profile-editor-grid" id="itemEditorFields"></div>
+            </div>
+            <div class="headmate-profile-grid" id="itemProfileGrid"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-journal">
+        <div class="page-header"><h1>System Journal</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search journal..." class="table-search" id="journalSearchInput" />
+            <select class="setting-input" id="journalFilterSelect">
+              <option value="all">All Entries</option>
+              <option value="favorites">Favorites</option>
+              <option value="pinned">Pinned</option>
+            </select>
+            <select class="setting-input" id="journalSortSelect">
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="az">Title A–Z</option>
+            </select>
+            <button class="btn-primary" id="addJournalEntryBtn" type="button">+ New Entry</button>
+            <button class="btn-sm" id="addLogShortcutBtn" type="button">+ Add Log Shortcut</button>
+          </div>
+          <div class="widget">
+            <h3>Log Shortcuts</h3>
+            <p class="headmate-hint">Create one-click shortcuts with custom preset text for any module.</p>
+            <div class="profile-editor" id="logShortcutEditor" hidden>
+              <h4>Create Log Shortcut</h4>
+              <div class="profile-editor-grid">
+                <label>Shortcut Label<input class="setting-input" id="logShortcutLabelInput" type="text" placeholder="Daily Check-In" /></label>
+                <label>Module
+                  <select class="setting-input" id="logShortcutModuleSelect"></select>
+                </label>
+                <label>Preset Text<textarea class="setting-input" id="logShortcutTextInput" placeholder="Preset log text..."></textarea></label>
+              </div>
+              <div class="headmate-actions">
+                <button class="btn-primary" id="saveLogShortcutBtn" type="button">Save Shortcut</button>
+                <button class="btn-sm" id="cancelLogShortcutBtn" type="button">Cancel</button>
+              </div>
+            </div>
+            <div class="log-shortcuts-list" id="logShortcutsList"></div>
+          </div>
+
+          <div class="journal-list" id="journalList"></div>
+          <p class="headmate-hint" id="journalEmptyHint" hidden>No log entries yet. Create one manually or use a shortcut.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-chat">
+        <div class="page-header"><h1>Inner Chat</h1></div>
+        <div class="page-body chat-layout">
+          <div class="chat-sidebar">
+            <div class="chat-sidebar-top">
+              <h3>Alters</h3>
+            </div>
+            <ul class="chat-list" id="chatAlterList">
+              <li class="chat-empty-hint">No headmates found for this user.</li>
+            </ul>
+          </div>
+          <div class="chat-main">
+            <div class="chat-convo-header" id="chatConvoHeader">
+              <span class="chat-placeholder-text">Select an alter to open a conversation.</span>
+            </div>
+            <div class="chat-messages" id="chatMessages"></div>
+            <div class="chat-input-bar" id="chatInputBar" hidden>
+              <div class="chat-input-actions">
+                <button class="btn-sm" id="chatPollBtn" type="button">+ Poll</button>
+              </div>
+              <input type="text" id="chatInput" placeholder="Type a message... Markdown supports **bold**, *italic*, and `code`" autocomplete="off" />
+              <button class="btn-primary" id="sendMsg" type="button">Send</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-messages">
+        <div class="page-header"><h1>Messages</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <button class="btn-primary">+ Compose</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>From</th><th>Subject</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge">Bob</span></td><td>Parts update</td><td>Today 09:30</td><td><span class="badge green">Unread</span></td></tr>
+              <tr><td><span class="badge">Carol</span></td><td>Gallery upload done</td><td>Today 08:15</td><td><span class="badge">Read</span></td></tr>
+              <tr><td><span class="badge">System</span></td><td>Daily check-in completed</td><td>Yesterday</td><td><span class="badge">Read</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-health">
+        <div class="page-header"><h1>Health</h1></div>
+        <div class="page-body">
+          <div class="widget">
+            <h3>Medication Tracker</h3>
+            <p class="headmate-hint">Track meds for the active user profile. Add medication name, dosage, and schedule, then mark it taken.</p>
+            <div class="med-tracker-form" id="medTrackerForm">
+              <input class="setting-input" id="medNameInput" type="text" placeholder="Medication name" />
+              <input class="setting-input" id="medDosageInput" type="text" placeholder="Dosage (e.g. 10mg)" />
+              <input class="setting-input" id="medScheduleInput" type="text" placeholder="Schedule (e.g. Morning / 8:00 PM)" />
+              <button class="btn-primary" id="addMedicationBtn" type="button">+ Add Medication</button>
+            </div>
+            <table class="data-table med-table">
+              <thead><tr><th>Medication</th><th>Dosage</th><th>Schedule</th><th>Last Taken</th><th>Actions</th></tr></thead>
+              <tbody id="medicationsTableBody"></tbody>
+            </table>
+            <div class="med-checkin-log">
+              <div class="med-checkin-log-head">
+                <h4>Medication Check-Ins</h4>
+                <button class="btn-sm" id="clearMedicationLogBtn" type="button">Clear Log</button>
+              </div>
+              <ul class="med-checkin-list" id="medicationCheckinList"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-switchboard">
+        <div class="page-header"><h1>Rules</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <button class="btn-primary">+ New Rule</button>
+          </div>
+          <div class="journal-list">
+            <div class="journal-card">
+              <div class="journal-meta"><span class="journal-date">Apr 2, 2026</span><span class="badge">Safety</span></div>
+              <h3>Fronting Consent Rule</h3>
+              <p>Ask before front-pulling unless there is an urgent safety concern. Use Inner Chat for non-urgent requests.</p>
+            </div>
+            <div class="journal-card">
+              <div class="journal-meta"><span class="journal-date">Apr 1, 2026</span><span class="badge">Communication</span></div>
+              <h3>Conflict Cooldown Rule</h3>
+              <p>If conflict spikes, pause for 20 minutes, switch to text-only communication, and return with tone tags.</p>
+            </div>
+            <div class="journal-card">
+              <div class="journal-meta"><span class="journal-date">Mar 30, 2026</span><span class="badge">Health</span></div>
+              <h3>Medication Confirmation Rule</h3>
+              <p>When medication is taken, log a check-in in Health with timestamp and dose details for accountability.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-gallery">
+        <div class="page-header"><h1>Media Library</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <button class="btn-primary">+ Upload</button>
+          </div>
+          <div class="gallery-grid">
+            <div class="gallery-item" style="background:linear-gradient(135deg,#6c63ff,#a29bfe)"><span>Image 01</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#ff6584,#fd79a8)"><span>Image 02</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#43d9ad,#00cec9)"><span>Image 03</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#f5a623,#fdcb6e)"><span>Image 04</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#e17055,#fab1a0)"><span>Image 05</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#0984e3,#74b9ff)"><span>Image 06</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#6c63ff,#ff6584)"><span>Image 07</span></div>
+            <div class="gallery-item" style="background:linear-gradient(135deg,#43d9ad,#6c63ff)"><span>Image 08</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-templates">
+        <div class="page-header"><h1>Forms</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search templates..." class="table-search" id="templatesSearch" />
+            <button class="btn-primary" id="addTemplateBtn" type="button">+ New Template</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>Name</th><th>Target</th><th>Category</th></tr></thead>
+            <tbody id="templatesTableBody"></tbody>
+          </table>
+          <p class="headmate-hint">Select a template row to view details. Create your own custom templates for repeat use.</p>
+
+          <section class="headmate-profile" id="templateProfile" hidden>
+            <div class="headmate-profile-banner" id="templateBanner">
+              <div class="headmate-photo" id="templatePhoto">T</div>
+              <div class="headmate-banner-meta">
+                <p class="headmate-kicker">Custom Template</p>
+                <h2 id="templateName">Template</h2>
+                <p id="templateMeta">Category</p>
+              </div>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-sm" id="editTemplateBtn" type="button">Edit</button>
+              <button class="btn-primary" id="saveTemplateBtn" type="button" disabled>Save</button>
+              <button class="btn-sm" id="deleteTemplateBtn" type="button">Delete</button>
+            </div>
+            <div class="profile-editor" id="templateEditor" hidden>
+              <h4>Edit Template</h4>
+              <div class="profile-editor-grid" id="templateEditorFields"></div>
+            </div>
+            <div class="headmate-profile-grid" id="templateProfileGrid"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-settings">
+        <div class="page-header"><h1>Settings</h1></div>
+        <div class="page-body">
+          <div class="settings-sections">
+
+            <!-- Appearance -->
+            <div class="settings-group">
+              <h3>Appearance</h3>
+              <div class="setting-row">
+                <label>Dark Mode</label>
+                <label class="toggle"><input type="checkbox" id="darkModeSettingSwitch" /><span class="slider"></span></label>
+              </div>
+              <div class="setting-row">
+                <label>Compact Sidebar</label>
+                <label class="toggle"><input type="checkbox" id="compactSidebar" /><span class="slider"></span></label>
+              </div>
+              <div class="setting-row">
+                <label>Font Size</label>
+                <div class="font-size-control">
+                  <span class="font-size-marker">A</span>
+                  <input type="range" id="fontSizeSetting" min="12" max="22" step="1" value="15" />
+                  <span class="setting-value" id="fontSizeValue">15px</span>
+                  <button class="btn-sm" id="resetFontSizeBtn" type="button">Reset</button>
+                </div>
+              </div>
+              <div class="setting-row">
+                <label>Color Theme</label>
+                <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+                  <label style="display:flex;flex-direction:column;gap:4px;color:var(--text-muted);font-size:12px">
+                    Light Theme
+                    <select class="setting-input" id="lightThemeSelect" style="min-width:210px">
+                      <option value="default-light">Default Light</option>
+                      <option value="pastel-rainbow">Pastel Rainbow</option>
+                      <option value="valentine-light">Valentine Light</option>
+                      <option value="neon-rainbow">Neon Rainbow</option>
+                      <option value="watermelon">Watermelon</option>
+                      <option value="sunset">Sunset</option>
+                      <option value="ocean">Ocean</option>
+                      <option value="retro">Retro</option>
+                      <option value="greyscale-light">Greyscale Light</option>
+                      <option value="matcha">Matcha</option>
+                      <option value="custom-light">Custom Light</option>
+                    </select>
+                  </label>
+                  <label style="display:flex;flex-direction:column;gap:4px;color:var(--text-muted);font-size:12px">
+                    Dark Theme
+                    <select class="setting-input" id="darkThemeSelect" style="min-width:210px">
+                      <option value="default-dark">Default Dark</option>
+                      <option value="halloween">Halloween</option>
+                      <option value="valentine-dark">Valentine Dark</option>
+                      <option value="hacker">Hacker</option>
+                      <option value="christmas">Christmas</option>
+                      <option value="greyscale-dark">Greyscale Dark</option>
+                      <option value="forest">Forest</option>
+                      <option value="mystic">Mystic</option>
+                      <option value="dark-rainbow">Dark Rainbow</option>
+                      <option value="night-glow">Night Glow</option>
+                      <option value="custom-dark">Custom Dark</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div class="setting-row">
+                <label>Theme Preview</label>
+                <div class="theme-preview-panel">
+                  <div class="theme-preview-grid" id="themePreviewGrid"></div>
+                </div>
+              </div>
+              <div class="setting-row" id="customThemeTokensRow" hidden>
+                <label>Custom Theme Tokens (10 colors each)</label>
+                <div class="theme-token-editor">
+                  <div>
+                    <strong class="theme-token-title">Light Mode</strong>
+                    <div class="theme-token-grid" id="customLightTokenGrid"></div>
+                  </div>
+                  <div>
+                    <strong class="theme-token-title">Dark Mode</strong>
+                    <div class="theme-token-grid" id="customDarkTokenGrid"></div>
+                  </div>
+                  <div style="display:flex;justify-content:flex-end">
+                    <button class="btn-sm" id="applyCustomThemeTokensBtn">Apply Custom Theme</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Hub Info -->
+            <div class="settings-group">
+              <h3>Hub Info</h3>
+              <div class="setting-row"><label>Hub Name</label><input type="text" class="setting-input" id="hubNameInput" placeholder="System Hub" /></div>
+              <div class="setting-row"><label>Hub Description</label><textarea class="setting-input" id="hubDescInput" placeholder="A brief description of your system..." style="height:72px"></textarea></div>
+              <div class="setting-row"><label>Hub Icon</label><input type="text" class="setting-input" id="hubIconInput" placeholder="Emoji or letter, e.g. ✦" style="width:80px" /></div>
+              <button class="btn-primary" id="saveHubInfoBtn" style="margin-top:.75rem">Save Hub Info</button>
+            </div>
+
+            <div class="settings-group">
+              <h3>Terminology</h3>
+              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">Customize the main words used around the hub.</p>
+              <div class="profile-editor-grid">
+                <label>Headmates<input type="text" class="setting-input" id="termHeadmatesInput" value="Headmates" /></label>
+                <label>System<input type="text" class="setting-input" id="termSystemInput" value="System" /></label>
+                <label>Subsystem<input type="text" class="setting-input" id="termSubsystemInput" value="Subsystems" /></label>
+                <label>Innerworld<input type="text" class="setting-input" id="termInnerworldInput" value="Innerworld" /></label>
+                <label>Partners<input type="text" class="setting-input" id="termPartnersInput" value="Partners" /></label>
+              </div>
+              <button class="btn-primary" id="saveTerminologyBtn" style="margin-top:.75rem">Save Terminology</button>
+            </div>
+
+            <!-- Privacy & Safety -->
+            <div class="settings-group">
+              <h3>Privacy &amp; Safety</h3>
+              <div class="setting-row"><label>Track who is fronting</label><label class="toggle"><input type="checkbox" id="privFrontTracking" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Show headmate profiles to all users</label><label class="toggle"><input type="checkbox" id="privHeadmatesVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Show health data to all users</label><label class="toggle"><input type="checkbox" id="privHealthVisible" /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Show journal entries to all users</label><label class="toggle"><input type="checkbox" id="privJournalVisible" /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Show partner profiles to all users</label><label class="toggle"><input type="checkbox" id="privPartnersVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Show history timeline to all users</label><label class="toggle"><input type="checkbox" id="privHistoryVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Show innerworld/locations to all users</label><label class="toggle"><input type="checkbox" id="privLocationsVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Content warnings on by default</label><label class="toggle"><input type="checkbox" id="privCWDefault" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Require confirmation before deleting records</label><label class="toggle"><input type="checkbox" id="privDeleteConfirm" checked /><span class="slider"></span></label></div>
+            </div>
+
+            <!-- Notifications -->
+            <div class="settings-group">
+              <h3>Notifications</h3>
+              <div class="setting-row"><label>Journal entries</label><label class="toggle"><input type="checkbox" id="notifJournal" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Medication reminders</label><label class="toggle"><input type="checkbox" id="notifMeds" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>New inner chat messages</label><label class="toggle"><input type="checkbox" id="notifChat" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>History events added</label><label class="toggle"><input type="checkbox" id="notifHistory" /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Profile changes by other users</label><label class="toggle"><input type="checkbox" id="notifProfileChanges" /><span class="slider"></span></label></div>
+            </div>
+
+            <!-- Data -->
+            <div class="settings-group">
+              <h3>Data</h3>
+              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">Export or reset all hub data. This data lives in memory and is not persisted between page reloads.</p>
+              <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+                <button class="btn-primary" id="exportDataBtn">Export All Data (JSON)</button>
+                <button class="btn-danger" id="clearDataBtn">Clear All Local Data</button>
+              </div>
+            </div>
+
+            <!-- About -->
+            <div class="settings-group">
+              <h3>About</h3>
+              <div class="setting-row"><label>Version</label><span class="setting-value">ISPD7 v0.1.0</span></div>
+              <div class="setting-row"><label>Build</label><span class="setting-value">April 2026 — Vanilla SPA</span></div>
+              <div class="setting-row"><label>Purpose</label><span class="setting-value">DID/plural system hub for internal coordination</span></div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-calendar">
+        <div class="page-header"><h1>History</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search history..." class="table-search" id="historySearchInput" />
+            <select class="setting-input" id="historyFilterSelect">
+              <option value="all">All Events</option>
+              <option value="favorites">Favorites</option>
+              <option value="pinned">Pinned</option>
+              <option value="Traums">Traums</option>
+              <option value="Split">Split</option>
+              <option value="Event">Event</option>
+              <option value="Holiday">Holiday</option>
+              <option value="Anniversary">Anniversary</option>
+              <option value="Birthday">Birthday</option>
+              <option value="Win">Win</option>
+              <option value="Loss">Loss</option>
+              <option value="Victory">Victory</option>
+              <option value="Other">Other</option>
+            </select>
+            <select class="setting-input" id="historySortSelect">
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
+              <option value="az">Title A–Z</option>
+            </select>
+            <button class="btn-primary" id="addHistoryEventBtn" type="button">+ Add Event</button>
+          </div>
+          <p class="headmate-hint">Timeline view for major system history. Track splits, traums, holidays, anniversaries, birthdays, wins, losses, victories, and more.</p>
+
+          <div class="profile-editor" id="historyEventEditor" hidden>
+            <h4>Edit Event</h4>
+            <div class="profile-editor-grid">
+              <label>Title<input class="setting-input" id="historyEventTitleInput" type="text" /></label>
+              <label>Date<input class="setting-input" id="historyEventDateInput" type="date" /></label>
+              <label>Event Type
+                <select class="setting-input" id="historyEventTypeInput">
+                  <option value="Traums">Traums</option>
+                  <option value="Split">Split</option>
+                  <option value="Event">Event</option>
+                  <option value="Holiday">Holiday</option>
+                  <option value="Anniversary">Anniversary</option>
+                  <option value="Birthday">Birthday</option>
+                  <option value="Win">Win</option>
+                  <option value="Loss">Loss</option>
+                  <option value="Victory">Victory</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+              <label>Notes<textarea class="setting-input" id="historyEventNotesInput"></textarea></label>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-primary" id="saveHistoryEventBtn" type="button">Save</button>
+              <button class="btn-sm" id="cancelHistoryEventBtn" type="button">Cancel</button>
+            </div>
+          </div>
+
+          <div class="history-timeline" id="historyTimeline"></div>
+          <p class="headmate-hint" id="historyEmptyHint" hidden>No history events yet. Add one to start the timeline.</p>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-notifications">
+        <div class="page-header"><h1>Innerworld</h1></div>
+        <div class="page-body">
+          <div class="toolbar">
+            <input type="text" placeholder="Search locations..." class="table-search" id="locationsSearch" />
+            <button class="btn-primary" id="addLocationBtn" type="button">+ Add Location</button>
+            <button class="btn-sm" id="addLocationFromTemplateBtn" type="button">+ From Template</button>
+          </div>
+          <table class="data-table">
+            <thead><tr><th>ID</th><th>Location</th><th>Type</th></tr></thead>
+            <tbody id="locationsTableBody"></tbody>
+          </table>
+          <p class="headmate-hint">Track innerworld locations as a separate database with descriptions, linked alters, and connected places.</p>
+
+          <div class="partners-diagram">
+            <div class="partners-diagram-head">
+              <h3>Location Map</h3>
+              <button class="btn-sm" id="refreshLocationMapBtn" type="button">Refresh Map</button>
+            </div>
+            <div class="partners-diagram-canvas" id="locationMapCanvas"></div>
+          </div>
+
+          <section class="headmate-profile" id="locationProfile" hidden>
+            <div class="headmate-profile-banner" id="locationBanner">
+              <div class="headmate-photo" id="locationPhoto">L</div>
+              <div class="headmate-banner-meta">
+                <p class="headmate-kicker">Location Profile</p>
+                <h2 id="locationName">Location</h2>
+                <p id="locationMeta">Type • Connected locations</p>
+              </div>
+            </div>
+            <div class="headmate-actions">
+              <button class="btn-sm" id="editLocationBtn" type="button">Edit</button>
+              <button class="btn-sm" id="linkLocationProfileBtn" type="button">Link Profile</button>
+              <button class="btn-primary" id="saveLocationBtn" type="button" disabled>Save</button>
+              <button class="btn-sm" id="deleteLocationBtn" type="button">Delete</button>
+            </div>
+            <div class="profile-editor" id="locationEditor" hidden>
+              <h4>Edit Location</h4>
+              <div class="profile-editor-grid" id="locationEditorFields"></div>
+            </div>
+            <div class="headmate-profile-grid" id="locationProfileGrid"></div>
+            <div class="subsystem-hub" id="locationSublocationHub">
+              <div class="subsystem-hub-header">
+                <h3>Sublocations</h3>
+                <button class="btn-sm" id="linkSublocationBtn" type="button">+ Link Sublocation</button>
+              </div>
+              <div class="subsystem-link-picker" id="sublocationLinkPicker" hidden>
+                <select class="setting-input" id="sublocationLinkSelect"></select>
+                <button class="btn-primary" id="sublocationLinkConfirmBtn" type="button">Link</button>
+                <button class="btn-sm" id="sublocationLinkCancelBtn" type="button">Cancel</button>
+              </div>
+              <div class="subsystem-hub-list" id="locationSublocationList"></div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="module-page" id="page-profile">
+        <div class="page-header"><h1>Member Profile</h1></div>
+        <div class="page-body">
+
+          <!-- Login View -->
+          <div id="accountLoginView">
+            <div class="settings-sections">
+              <div class="settings-group">
+                <h3>Sign In</h3>
+                <div class="setting-row"><label>Username</label><input type="text" class="setting-input" id="loginUsernameInput" autocomplete="username" /></div>
+                <div class="setting-row"><label>Password</label><input type="password" class="setting-input" id="loginPasswordInput" autocomplete="current-password" /></div>
+                <p class="account-error" id="loginError" hidden></p>
+                <div style="display:flex;gap:.5rem;margin-top:1rem">
+                  <button class="btn-primary" id="loginSubmitBtn">Sign In</button>
+                  <button class="btn-sm" id="showSignupBtn">Create Account</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Signup View -->
+          <div id="accountSignupView" hidden>
+            <div class="settings-sections">
+              <div class="settings-group">
+                <h3>Create Account</h3>
+                <div class="setting-row"><label>Username</label><input type="text" class="setting-input" id="signupUsernameInput" autocomplete="username" /></div>
+                <div class="setting-row"><label>Password</label><input type="password" class="setting-input" id="signupPasswordInput" autocomplete="new-password" /></div>
+                <p class="account-error" id="signupError" hidden></p>
+                <div style="display:flex;gap:.5rem;margin-top:1rem">
+                  <button class="btn-primary" id="signupSubmitBtn">Create Account</button>
+                  <button class="btn-sm" id="showLoginBtn">Back to Sign In</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Account Profile View -->
+          <div id="accountProfileView" hidden>
+            <div class="headmate-profile-banner" id="accountBanner" style="--headmate-color:#6c63ff" title=""></div>
+            <div class="profile-card">
+              <div class="avatar xl" id="profileAvatar" style="background:#6c63ff">A</div>
+              <div class="profile-info">
+                <h2 id="profileName">User</h2>
+                <p id="accountUsernameDisplay" style="color:var(--text-muted);font-size:.85rem"></p>
+                <div id="accountDescriptionDisplay"></div>
+                <div id="accountTagsDisplay" class="tag-pill-row"></div>
+              </div>
+            </div>
+            <div class="headmate-profile-grid account-extra-grid" id="accountCustomFieldsDisplay"></div>
+            <div class="settings-sections">
+              <div class="settings-group">
+                <h3>Edit Profile</h3>
+                <div class="setting-row"><label>Name</label><input type="text" class="setting-input" id="editAccountNameInput" autocomplete="name" /></div>
+                <div class="setting-row"><label>Username</label><input type="text" class="setting-input" id="editAccountUsernameInput" autocomplete="username" /></div>
+                <div class="setting-row"><label>Description</label><textarea class="setting-input" id="editAccountDescriptionInput"></textarea></div>
+                <div class="setting-row"><label>Tags</label><input type="text" class="setting-input" id="editAccountTagsInput" placeholder="Comma-separated tags" /></div>
+                <div class="setting-row"><label>Custom Fields</label><textarea class="setting-input" id="editAccountCustomFieldsInput" placeholder="Favorite drink: Tea&#10;Safe show: Bee and PuppyCat"></textarea></div>
+                <div class="setting-row"><label>Profile Photo</label><input type="text" class="setting-input" id="editAccountPhotoInput" placeholder="Letter or image/GIF URL" /></div>
+                <div class="setting-row"><label>Banner</label><input type="text" class="setting-input" id="editAccountBannerInput" placeholder="Banner text or image/GIF URL" /></div>
+                <div class="setting-row"><label>New Password</label><input type="password" class="setting-input" id="editPasswordInput" autocomplete="new-password" placeholder="Leave blank to keep current" /></div>
+                <div class="setting-row"><label>Confirm Password</label><input type="password" class="setting-input" id="editConfirmPasswordInput" autocomplete="new-password" /></div>
+                <p class="account-error" id="editError" hidden></p>
+                <button class="btn-primary" id="saveAccountBtn" style="margin-top:1rem">Save Changes</button>
+              </div>
+              <div class="settings-group">
+                <h3>Account Actions</h3>
+                <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">
+                  <button class="btn-sm" id="logoutBtn">Log Out</button>
+                  <button class="btn-danger" id="deleteAccountBtn">Delete Account</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
