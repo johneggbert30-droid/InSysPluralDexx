@@ -6309,6 +6309,26 @@ function setAuthToken(token = '') {
   }
 }
 
+function clearInvalidAccountSession(message = 'Your saved account session is no longer available. Please sign in again.') {
+  if (!USE_BACKEND_AUTH) return;
+
+  setAuthToken('');
+  loggedInAccountKey = null;
+  remoteAccountDirectory = [];
+  lastRemoteHubStateText = '';
+  persistAccountState();
+
+  ['loginError', 'signupError', 'editError'].forEach((id) => {
+    const field = document.getElementById(id);
+    if (field && typeof showAccountError === 'function') showAccountError(field, message);
+  });
+
+  if (typeof setNoSystemSelected === 'function') setNoSystemSelected();
+  if (typeof setAppLockState === 'function') setAppLockState();
+  if (typeof renderAccountModule === 'function') renderAccountModule();
+  if (typeof navigateTo === 'function') navigateTo('profile');
+}
+
 function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
   const username = String(account.username || fallbackUsername || 'user').trim().toLowerCase();
   const displayName = String(account.name || username || 'User').trim() || 'User';
@@ -6350,7 +6370,30 @@ async function apiRequest(path, options = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || 'Request failed.');
+    const message = String(data.error || 'Request failed.');
+    const currentAccountRoute = path === '/api/me' || path.startsWith('/api/me/') || path === '/api/accounts';
+    const shouldResetSession = USE_BACKEND_AUTH && currentAccountRoute && (
+      response.status === 401 || (response.status === 404 && /account not found/i.test(message))
+    );
+
+    if (shouldResetSession) {
+      clearInvalidAccountSession(
+        response.status === 401
+          ? 'Your sign-in expired. Please sign in again.'
+          : 'That saved account was not found on the server. Please sign in again.'
+      );
+    }
+
+    const error = new Error(
+      shouldResetSession
+        ? (response.status === 401
+          ? 'Your sign-in expired. Please sign in again.'
+          : 'That saved account was not found on the server. Please sign in again.')
+        : message
+    );
+    error.status = response.status;
+    error.path = path;
+    throw error;
   }
 
   return data;
@@ -6375,13 +6418,13 @@ function loadAccountState() {
     if (savedAccounts && typeof savedAccounts === 'object') {
       Object.entries(savedAccounts).forEach(([key, value]) => {
         if (!key || !value || typeof value !== 'object') return;
-        accounts[key] = { ...value };
+        accounts[key] = normalizeRemoteAccount(value, key);
       });
     }
 
     authToken = String(localStorage.getItem(AUTH_TOKEN_KEY) || '').trim();
     const savedSession = (localStorage.getItem(ACCOUNT_SESSION_KEY) || '').trim().toLowerCase();
-    if (savedSession && accounts[savedSession]) {
+    if (savedSession && accounts[savedSession] && (!USE_BACKEND_AUTH || authToken)) {
       loggedInAccountKey = savedSession;
     }
   } catch (_err) {
@@ -6391,7 +6434,9 @@ function loadAccountState() {
 }
 
 function isSignedIn() {
-  return Boolean(loggedInAccountKey && accounts[loggedInAccountKey]);
+  return USE_BACKEND_AUTH
+    ? Boolean(authToken && loggedInAccountKey && accounts[loggedInAccountKey])
+    : Boolean(loggedInAccountKey && accounts[loggedInAccountKey]);
 }
 
 function setAppLockState() {
