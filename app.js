@@ -735,8 +735,39 @@ const systemEditTrustLevel = document.getElementById('systemEditTrustLevel');
 let editingSystemUser = null;
 let creatingSystemProfile = false;
 const NO_SYSTEM_USER = 'No system';
+const MAX_SYSTEMS_PER_ACCOUNT = 10;
+const MAX_HEADMATES_PER_ACCOUNT = 2000;
 
 const systemProfiles = {};
+
+function getSystemCountForAccount() {
+  return Object.keys(systemProfiles || {}).length;
+}
+
+function getTotalHeadmateCountForAccount() {
+  return Object.values(headmateProfilesByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+}
+
+function canCreateSystemProfile(additionalSystems = 1, { silent = false } = {}) {
+  const currentCount = getSystemCountForAccount();
+  const allowed = currentCount + Number(additionalSystems || 0) <= MAX_SYSTEMS_PER_ACCOUNT;
+  if (!allowed && !silent) {
+    safeAlert(`Each account can have up to ${MAX_SYSTEMS_PER_ACCOUNT} systems/users in the top-left switcher.`);
+  }
+  return allowed;
+}
+
+function canCreateHeadmates(additionalHeadmates = 1, { silent = false } = {}) {
+  const currentCount = getTotalHeadmateCountForAccount();
+  const allowed = currentCount + Number(additionalHeadmates || 0) <= MAX_HEADMATES_PER_ACCOUNT;
+  if (!allowed && !silent) {
+    const remaining = Math.max(0, MAX_HEADMATES_PER_ACCOUNT - currentCount);
+    safeAlert(`This account can store up to ${MAX_HEADMATES_PER_ACCOUNT} total headmates across all systems. You can add ${remaining} more right now.`);
+  }
+  return allowed;
+}
 
 function ensureSystemProfile(userName, initial, color) {
   if (!userName || userName === NO_SYSTEM_USER) return;
@@ -989,6 +1020,7 @@ document.querySelectorAll('.user-option[data-user]').forEach(opt => {
 
 document.getElementById('addUserBtn').addEventListener('click', (e) => {
   e.stopPropagation();
+  if (!canCreateSystemProfile(1)) return;
   const defaultName = `User ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
   const name = safePrompt('Enter new user name:', defaultName);
   if (!name || !name.trim()) return;
@@ -1003,7 +1035,7 @@ document.getElementById('addUserBtn').addEventListener('click', (e) => {
   if (shouldMigrateUnassigned) migrateUserScopedData(NO_SYSTEM_USER, trimmed);
 
   const addBtn = document.getElementById('addUserBtn');
-  userDropdown.insertBefore(opt, addBtn.previousElementSibling.nextSibling);
+  userDropdown.insertBefore(opt, addBtn || null);
   userDropdown.classList.remove('open');
   renderSystemProfiles();
   applyUserSelection(trimmed, initial, color, opt);
@@ -1094,6 +1126,7 @@ if (systemProfilesGrid) {
 
 if (addSystemProfileBtn) {
   addSystemProfileBtn.addEventListener('click', () => {
+    if (!canCreateSystemProfile(1)) return;
     editingSystemUser = null;
     creatingSystemProfile = true;
     const defaultName = `Profile ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
@@ -1114,6 +1147,7 @@ if (addSystemProfileBtn) {
 
 if (addSystemFromTemplateBtn) {
   addSystemFromTemplateBtn.addEventListener('click', () => {
+    if (!canCreateSystemProfile(1)) return;
     const template = pickTemplateForTarget('system');
     if (!template) return;
     editingSystemUser = null;
@@ -1167,9 +1201,10 @@ if (saveSystemEditorBtn) {
 
     let option = existingOpt;
     if (!option) {
+      if (!canCreateSystemProfile(1)) return;
       const addBtn = document.getElementById('addUserBtn');
       option = createUserOption(newName, newName[0].toUpperCase(), draft.color);
-      if (addBtn) userDropdown.insertBefore(option, addBtn.previousElementSibling.nextSibling);
+      if (addBtn) userDropdown.insertBefore(option, addBtn);
     }
 
     const previousName = editingSystemUser;
@@ -1512,6 +1547,7 @@ const addPartnerFromTemplateBtn = document.getElementById('addPartnerFromTemplat
 const editPartnerBtn = document.getElementById('editPartnerBtn');
 const linkPartnerAccountBtn = document.getElementById('linkPartnerAccountBtn');
 const linkPartnerAlterBtn = document.getElementById('linkPartnerAlterBtn');
+const linkPartnerConnectionBtn = document.getElementById('linkPartnerConnectionBtn');
 const linkPartnerProfileBtn = document.getElementById('linkPartnerProfileBtn');
 const addPartnerHeadmateBtn = document.getElementById('addPartnerHeadmateBtn');
 const savePartnerBtn = document.getElementById('savePartnerBtn');
@@ -2010,6 +2046,38 @@ if (linkPartnerAlterBtn) {
     renderPartnerProfile(partner);
     renderHeadmatesTable();
     if (selectedHeadmateKey === key) renderHeadmateProfile(headmate);
+  });
+}
+
+if (linkPartnerConnectionBtn) {
+  linkPartnerConnectionBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    const availablePartners = Object.entries(partnerProfiles)
+      .filter(([key]) => key !== selectedPartnerKey)
+      .map(([, profile]) => profile.name)
+      .filter(Boolean);
+    if (!availablePartners.length) {
+      safeAlert('Add another partner first so there is someone to connect.');
+      return;
+    }
+    const rawName = safePrompt(`Enter the partner to connect with ${partnerProfiles[selectedPartnerKey].name}. Available: ${availablePartners.join(', ')}`, availablePartners[0]);
+    if (!rawName || !rawName.trim()) return;
+    const otherKey = findPartnerKeyByName(rawName);
+    if (!otherKey || otherKey === selectedPartnerKey) {
+      safeAlert('No matching partner was found.');
+      return;
+    }
+    const currentPartner = partnerProfiles[selectedPartnerKey];
+    const otherPartner = partnerProfiles[otherKey];
+    currentPartner.connections = appendCommaLinkValue(currentPartner.connections, otherPartner.name);
+    otherPartner.connections = appendCommaLinkValue(otherPartner.connections, currentPartner.name);
+    currentPartner.linkedProfiles = appendCommaLinkValue(currentPartner.linkedProfiles, `Partner: ${otherPartner.name}`);
+    otherPartner.linkedProfiles = appendCommaLinkValue(otherPartner.linkedProfiles, `Partner: ${currentPartner.name}`);
+    renderPartnersTable();
+    renderPartnerProfile(currentPartner);
   });
 }
 
@@ -2771,13 +2839,51 @@ function findSystemUserByName(name) {
   return Object.keys(systemProfiles).find((user) => normalizeLookupName(user) === normalized || normalizeLookupName(systemProfiles[user]?.name) === normalized) || null;
 }
 
+function findAccountByName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return null;
+  const normalized = normalizeLookupName(raw.replace(/^@+/, ''));
+  if (!normalized) return null;
+
+  const localMatch = Object.values(accounts || {}).find((account) => {
+    return normalizeLookupName(account?.username) === normalized || normalizeLookupName(account?.name) === normalized;
+  });
+  if (localMatch?.username) return localMatch.username;
+
+  const remoteMatch = Array.isArray(remoteAccountDirectory)
+    ? remoteAccountDirectory.find((account) => {
+        return normalizeLookupName(account?.username) === normalized || normalizeLookupName(account?.name) === normalized;
+      })
+    : null;
+  if (remoteMatch?.username) return remoteMatch.username;
+
+  return /^[a-z0-9_-]{2,32}$/i.test(normalized) ? normalized : null;
+}
+
+function parseAccountAlterReference(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^@?([a-z0-9_-]{2,32})\s*(?:\/|->|\||: )\s*(.+)$/i);
+  if (!match) return null;
+  const username = findAccountByName(match[1]) || String(match[1] || '').trim().toLowerCase();
+  const alterName = String(match[2] || '').trim();
+  if (!username || !alterName) return null;
+  return {
+    username,
+    alterName,
+    key: `account-alter::${encodeURIComponent(username)}::${encodeURIComponent(alterName)}`,
+    label: `@${username} / ${alterName}`
+  };
+}
+
 const PROFILE_LINK_TARGETS = [
   { label: 'Headmate', module: 'parts', aliases: ['headmate', 'alter', 'headmates', 'alters'], resolver: findHeadmateKeyByName },
   { label: 'Partner', module: 'friends', aliases: ['partner', 'partners'], resolver: findPartnerKeyByName },
   { label: 'Subsystem', module: 'partners', aliases: ['subsystem', 'subsystems'], resolver: findSubsystemKeyByName },
   { label: 'Location', module: 'notifications', aliases: ['location', 'locations', 'innerworld'], resolver: findLocationKeyByName },
   { label: 'Item', module: 'items', aliases: ['item', 'items'], resolver: findItemKeyByName },
-  { label: 'System', module: 'system', aliases: ['system', 'account', 'user', 'profile'], resolver: findSystemUserByName }
+  { label: 'System', module: 'system', aliases: ['system', 'systems', 'user', 'users', 'system profile'], resolver: findSystemUserByName },
+  { label: 'Account', module: 'accountFriends', aliases: ['account', 'accounts', 'member account', 'login account'], resolver: findAccountByName },
+  { label: 'Account Alter', module: 'accountFriends', aliases: ['account alter', 'account alters', 'friend alter', 'friend alters'], resolver: (label) => parseAccountAlterReference(label)?.key || null }
 ];
 
 function getProfileLinkTarget(typeName) {
@@ -2849,13 +2955,21 @@ function promptForProfileLink(defaultType = 'Headmate') {
       case 'notifications': return Object.values(locationProfiles).map((profile) => profile.name).join(', ');
       case 'items': return Object.values(itemProfiles).map((profile) => profile.name).join(', ');
       case 'system': return Object.keys(systemProfiles).join(', ');
+      case 'accountFriends': {
+        const accountNames = (Array.isArray(remoteAccountDirectory) && remoteAccountDirectory.length ? remoteAccountDirectory : Object.values(accounts))
+          .map((profile) => `@${profile.username || profile.name || 'account'}`);
+        return target.label === 'Account Alter'
+          ? `${accountNames.join(', ')} — format: @username / Alter Name`
+          : accountNames.join(', ');
+      }
       default: return '';
     }
   })();
 
+  const defaultValue = target.label === 'Account Alter' ? '@username / Alter Name' : '';
   const rawName = safePrompt(
     `Enter the ${target.label} name to link${suggestions ? `. Available: ${suggestions}` : ''}`,
-    ''
+    defaultValue
   );
   if (!rawName || !rawName.trim()) return null;
 
@@ -2943,6 +3057,24 @@ function openProfileFromLink(module, key) {
     }
     renderAccountModule();
     accountProfileView?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (module === 'accountFriends') {
+    const rawKey = String(key || '').trim();
+    if (rawKey.startsWith('account-alter::')) {
+      const [, encodedUser = '', encodedAlter = ''] = rawKey.split('::');
+      const username = decodeURIComponent(encodedUser || '').trim();
+      const alterName = decodeURIComponent(encodedAlter || '').trim();
+      if (friendUsernameInput) friendUsernameInput.value = username;
+      if (alterName) {
+        safeAlert(`Linked account alter: @${username} / ${alterName}. Use the Friends tab to connect that account.`);
+      }
+    } else if (friendUsernameInput) {
+      friendUsernameInput.value = decodeURIComponent(rawKey).replace(/^@+/, '').trim();
+    }
+    friendUsernameInput?.focus();
+    accountFriendsList?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     return;
   }
 
@@ -3386,7 +3518,7 @@ function renderFieldInput(field, id, safeValue) {
     : field.key === 'banner'
       ? 'Banner text or image/GIF URL'
       : field.key === 'linkedProfiles'
-        ? 'Example: Headmate: Alex, Location: Front Room'
+        ? 'Example: Headmate: Alex, Account: @friend, Account Alter: @friend / Nova'
         : field.key === 'linkedAlters'
           ? 'Comma-separated alter names'
           : field.key === 'partnerHeadmates'
@@ -3776,6 +3908,7 @@ function createDefaultHeadmateProfile(name, region, status) {
 
 if (addHeadmateBtn && headmatesTableBody) {
   addHeadmateBtn.addEventListener('click', () => {
+    if (!canCreateHeadmates(1)) return;
     creatingHeadmate = true;
     selectedHeadmateKey = null;
     pendingHeadmateDraft = null;
@@ -3798,6 +3931,7 @@ if (addHeadmateBtn && headmatesTableBody) {
 
 if (addHeadmateFromTemplateBtn && headmatesTableBody) {
   addHeadmateFromTemplateBtn.addEventListener('click', () => {
+    if (!canCreateHeadmates(1)) return;
     const template = pickTemplateForTarget('headmate');
     if (!template) return;
     creatingHeadmate = true;
@@ -3870,6 +4004,7 @@ if (saveHeadmateBtn) {
     let profile;
 
     if (creatingHeadmate) {
+      if (!canCreateHeadmates(1)) return;
       const role = (updatedDraft.mainRole || '').trim() || 'Support';
       const baseKey = slugifyHeadmateName(nameFromForm);
       let key = baseKey;
@@ -3933,9 +4068,21 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
     const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (!lines.length) return;
 
+    const remainingCapacity = Math.max(0, MAX_HEADMATES_PER_ACCOUNT - getTotalHeadmateCountForAccount());
+    if (!remainingCapacity) {
+      canCreateHeadmates(1);
+      return;
+    }
+
     let addedCount = 0;
+    let skippedCount = 0;
 
     lines.forEach((line) => {
+      if (addedCount >= remainingCapacity) {
+        skippedCount += 1;
+        return;
+      }
+
       const [rawName, rawRegion, rawStatus] = line.split('|').map((part) => (part || '').trim());
       if (!rawName) return;
 
@@ -3958,7 +4105,7 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
 
     if (addedCount > 0) {
       renderHeadmatesTable();
-      safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}.`);
+      safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}${skippedCount ? `, skipped ${skippedCount} because this account can only hold ${MAX_HEADMATES_PER_ACCOUNT} total.` : '.'}`);
     }
   });
 }
@@ -6570,6 +6717,8 @@ function renderAccountModule() {
     accountSignupView.hidden = true;
     accountProfileView.hidden = false;
 
+    rebuildUserDropdownOptions(getActiveUserName() !== NO_SYSTEM_USER ? getActiveUserName() : Object.keys(systemProfiles)[0] || '');
+
     const name = (acct.name || acct.username || 'User').trim();
     const photo = (acct.profilePhoto || name[0] || 'U').trim();
     const initial = name[0]?.toUpperCase() || 'U';
@@ -6603,6 +6752,8 @@ function renderAccountModule() {
     accountLoginView.hidden = false;
     accountSignupView.hidden = true;
     accountProfileView.hidden = true;
+    userDropdown?.querySelectorAll('.user-option[data-user]').forEach((option) => option.remove());
+    setNoSystemSelected();
     if (loginUsernameInput) loginUsernameInput.value = '';
     if (loginPasswordInput) loginPasswordInput.value = '';
     showAccountError(loginError, '');

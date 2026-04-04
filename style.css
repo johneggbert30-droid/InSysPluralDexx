@@ -184,9 +184,11 @@ select {
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   min-width: 192px;
+  max-height: min(70vh, 420px);
   z-index: 200;
   padding: 6px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .user-dropdown.open { display: block; }
 
@@ -2212,6 +2214,7 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 .account-friend-meta span {
   color: var(--text-muted);
   font-size: 13px;
+  word-break: break-word;
 }
 
 .account-friend-actions {

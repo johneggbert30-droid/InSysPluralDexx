@@ -13,6 +13,8 @@ const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
 const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 1024 * 1024);
+const MAX_SYSTEMS_PER_ACCOUNT = Number(process.env.MAX_SYSTEMS_PER_ACCOUNT || 10);
+const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT || 2000);
 
 app.use(cors({
   origin: FRONTEND_ORIGIN
@@ -68,6 +70,25 @@ function normalizeHubState(hubState = {}) {
   if (!cloned.updatedAt) cloned.updatedAt = new Date().toISOString();
   if (!cloned.activeUser) cloned.activeUser = 'No system';
   return cloned;
+}
+
+function getHubStateCounts(hubState = {}) {
+  const systemCount = Object.keys(hubState?.systemProfiles || {}).length;
+  const headmateCount = Object.values(hubState?.headmateProfilesByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+  return { systemCount, headmateCount };
+}
+
+function validateHubStateLimits(hubState = {}) {
+  const { systemCount, headmateCount } = getHubStateCounts(hubState);
+  if (systemCount > MAX_SYSTEMS_PER_ACCOUNT) {
+    return `Each account can store up to ${MAX_SYSTEMS_PER_ACCOUNT} systems.`;
+  }
+  if (headmateCount > MAX_HEADMATES_PER_ACCOUNT) {
+    return `Each account can store up to ${MAX_HEADMATES_PER_ACCOUNT} total headmates across all systems.`;
+  }
+  return '';
 }
 
 function sanitizeUser(user, store = { users: {} }, viewerUsername = '') {
@@ -319,7 +340,13 @@ app.put('/api/me/state', authRequired, (req, res) => {
     return res.status(413).json({ error: 'Saved hub state is too large.' });
   }
 
-  currentUser.hubState = normalizeHubState(JSON.parse(serialized));
+  const parsedHubState = normalizeHubState(JSON.parse(serialized));
+  const limitError = validateHubStateLimits(parsedHubState);
+  if (limitError) {
+    return res.status(400).json({ error: limitError });
+  }
+
+  currentUser.hubState = parsedHubState;
   currentUser.hubState.updatedAt = new Date().toISOString();
   currentUser.updatedAt = new Date().toISOString();
   store.users[req.auth.username] = currentUser;
