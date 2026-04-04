@@ -971,10 +971,6 @@ select {
     var(--success)
   );
 }
-.data-table th {
-  background: var(--surface2);
-  padding: 8px 10px;
-
 #page-parts .data-table tbody tr {
   cursor: pointer;
   transition: box-shadow var(--transition), transform var(--transition);
@@ -1216,6 +1212,10 @@ select {
 .location-map-legend strong {
   color: var(--text);
 }
+
+.data-table th {
+  background: var(--surface2);
+  padding: 8px 10px;
   text-align: left;
   font-size: 12px;
   font-weight: 700;
@@ -1224,6 +1224,7 @@ select {
   color: var(--text-muted);
   border-bottom: 1.5px solid var(--border);
 }
+
 .data-table td {
   padding: 9px 12px;
   font-size: 14px;
