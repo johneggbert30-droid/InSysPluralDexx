@@ -1310,6 +1310,75 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   font-weight: 700;
 }
 
+.tag-pill-btn {
+  cursor: pointer;
+}
+
+.tag-pill-btn:hover,
+.tag-pill-btn.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-light) 82%, var(--surface) 18%);
+}
+
+.tag-browser-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-browser-results {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.tag-browser-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.tag-browser-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tag-browser-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tag-browser-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tag-browser-meta span {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.tag-browser-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.field-helper {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .markdown-content {
   display: flex;
   flex-direction: column;

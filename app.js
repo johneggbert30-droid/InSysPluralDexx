@@ -20,6 +20,12 @@ const dashboardCompletionChart = document.getElementById('dashboardCompletionCha
 const dashboardActivityChart = document.getElementById('dashboardActivityChart');
 const dashboardCategoryPieChart = document.getElementById('dashboardCategoryPieChart');
 const dashboardCommunicationPieChart = document.getElementById('dashboardCommunicationPieChart');
+const tagTypeFilter = document.getElementById('tagTypeFilter');
+const clearTagFilterBtn = document.getElementById('clearTagFilterBtn');
+const tagSummary = document.getElementById('tagSummary');
+const tagCloud = document.getElementById('tagCloud');
+const tagResultsGrid = document.getElementById('tagResultsGrid');
+let activeTagFilter = 'all';
 
 const APP_CONFIG = window.APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
@@ -319,6 +325,8 @@ function renderDashboardModulePreviews() {
   const templateList = typeof customTemplates === 'object' ? Object.values(customTemplates) : [];
   const historyList = typeof historyEvents !== 'undefined' ? historyEvents : [];
   const accountList = typeof accounts === 'object' ? Object.keys(accounts) : [];
+  const tagRecords = typeof getTaggableProfileRecords === 'function' ? getTaggableProfileRecords() : [];
+  const uniqueTags = [...new Set(tagRecords.flatMap((record) => record.tags || []).map((tag) => normalizeLookupName(tag)).filter(Boolean))];
   const chatThreads = typeof chatMessagesByUser === 'object' ? Object.values(chatMessagesByUser[user] || {}) : [];
   const latestChatEntry = chatThreads.flat().sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))[0];
   const latestMessageSubject = document.querySelector('#page-messages tbody tr td:nth-child(2)')?.textContent?.trim() || 'Inbox overview';
@@ -351,6 +359,11 @@ function renderDashboardModulePreviews() {
       count: itemList.length,
       summary: itemList[0]?.name ? `Latest: ${itemList[0].name}` : 'No items saved yet',
       meta: 'Tagged objects and linked items'
+    },
+    tags: {
+      count: uniqueTags.length,
+      summary: uniqueTags.length ? `Top tags: ${tagRecords.slice(0, 3).flatMap((record) => record.tags).slice(0, 3).join(', ')}` : 'No tags saved yet',
+      meta: 'Cross-profile tag browser'
     },
     journal: {
       count: journalListForUser.length,
@@ -505,6 +518,7 @@ function renderDashboard() {
     }
 
     renderDashboardModulePreviews();
+    if (typeof renderTagsModule === 'function') renderTagsModule();
   } catch (_err) {
     // Some stores initialize later; dashboard will refresh again after setup.
   }
@@ -2872,6 +2886,15 @@ function openProfileFromLink(module, key) {
   if (!key) return;
   navigateTo(module);
 
+  if (module === 'profile') {
+    if (loggedInAccountKey && normalizeLookupName(key) !== normalizeLookupName(loggedInAccountKey)) {
+      safeAlert(`Sign into @${key} to open that account profile directly.`);
+    }
+    renderAccountModule();
+    accountProfileView?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
   if (module === 'parts') {
     const profiles = getActiveHeadmateProfiles();
     if (!profiles[key]) return;
@@ -2923,6 +2946,179 @@ function openProfileFromLink(module, key) {
   }
 }
 
+function getTaggableProfileRecords() {
+  const viewerLevel = typeof getViewerTrustLevel === 'function' ? getViewerTrustLevel() : 'public';
+  const records = [];
+  const seen = new Set();
+
+  const pushRecord = (module, key, type, profile = {}, options = {}) => {
+    if (!profile) return;
+    const dedupeKey = `${module}:${String(key || profile.username || profile.name || type).trim().toLowerCase()}`;
+    if (seen.has(dedupeKey)) return;
+
+    const tagVisibility = profile?.fieldPrivacy?.tags || 'public';
+    if (!canViewField(tagVisibility, viewerLevel)) return;
+
+    const tags = [...new Set(parseLinkedTextList(profile?.tags ?? profile?.tag ?? '')
+      .map((tag) => tag.replace(/^#/, '').trim())
+      .filter(Boolean))];
+    if (!tags.length) return;
+
+    const customVisibility = profile?.fieldPrivacy?.customFields || 'public';
+    const name = String(options.name || profile.name || profile.username || key || type).trim() || type;
+    const subtitle = String(options.subtitle || profile.role || profile.type || profile.status || '').trim();
+
+    records.push({
+      module,
+      key: String(key || profile.username || name),
+      type,
+      name,
+      subtitle,
+      tags,
+      customFieldCount: canViewField(customVisibility, viewerLevel) ? parseCustomFieldEntries(profile?.customFields).length : 0,
+      color: normalizeHexColor(profile?.color || options.color || '#6c63ff', '#6c63ff'),
+      photo: profile?.profilePhoto || options.photo || name[0]?.toUpperCase() || '?',
+      openable: options.openable !== false
+    });
+    seen.add(dedupeKey);
+  };
+
+  Object.entries(systemProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('system', key, 'System', profile, { subtitle: profile?.nickname || 'System profile' });
+  });
+
+  const currentAccount = typeof getCurrentAccountRecord === 'function' ? getCurrentAccountRecord() : null;
+  if (currentAccount) {
+    pushRecord('profile', currentAccount.username || loggedInAccountKey, 'Account', currentAccount, {
+      subtitle: `@${currentAccount.username || loggedInAccountKey}`,
+      openable: true
+    });
+  }
+
+  Object.entries(accounts || {}).forEach(([key, profile]) => {
+    if (currentAccount && normalizeLookupName(key) === normalizeLookupName(currentAccount.username || '')) return;
+    pushRecord('profile', key, 'Account', profile, {
+      subtitle: `@${profile?.username || key}`,
+      openable: normalizeLookupName(key) === normalizeLookupName(loggedInAccountKey || '')
+    });
+  });
+
+  (currentAccount?.friendProfiles || []).forEach((profile) => {
+    pushRecord('profile', profile?.username || profile?.name || 'friend', 'Account', profile, {
+      subtitle: `@${profile?.username || profile?.name || 'friend'}`,
+      openable: false
+    });
+  });
+
+  Object.entries(getActiveHeadmateProfiles()).forEach(([key, profile]) => {
+    pushRecord('parts', key, getSingularTerm('headmates'), profile, {
+      subtitle: profile?.role || profile?.region || profile?.status || `${getSingularTerm('headmates')} profile`
+    });
+  });
+
+  Object.entries(partnerProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('friends', key, getSingularTerm('partners'), profile, {
+      subtitle: profile?.type || profile?.status || 'Partner profile'
+    });
+  });
+
+  Object.entries(getActiveSubsystems()).forEach(([key, profile]) => {
+    pushRecord('partners', key, getSingularTerm('subsystem'), profile, {
+      subtitle: profile?.description || 'Subsystem profile'
+    });
+  });
+
+  Object.entries(itemProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('items', key, 'Item', profile, {
+      subtitle: profile?.tag || 'Item profile',
+      photo: profile?.name?.[0]?.toUpperCase() || 'I'
+    });
+  });
+
+  Object.entries(locationProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('notifications', key, getTermLabel('innerworld'), profile, {
+      subtitle: profile?.type || 'Location profile',
+      photo: profile?.name?.[0]?.toUpperCase() || 'L'
+    });
+  });
+
+  return records.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderTagsModule() {
+  if (!tagCloud || !tagResultsGrid || !tagSummary) return;
+
+  const records = getTaggableProfileRecords();
+  const moduleFilter = tagTypeFilter?.value || 'all';
+  const filteredRecords = moduleFilter === 'all'
+    ? records
+    : records.filter((record) => record.module === moduleFilter);
+
+  const tagMap = new Map();
+  filteredRecords.forEach((record) => {
+    record.tags.forEach((tag) => {
+      const key = normalizeLookupName(tag);
+      if (!key) return;
+      if (!tagMap.has(key)) {
+        tagMap.set(key, { label: tag, count: 0, records: [] });
+      }
+      const entry = tagMap.get(key);
+      entry.count += 1;
+      entry.records.push(record);
+    });
+  });
+
+  const tagEntries = Array.from(tagMap.entries())
+    .map(([key, entry]) => ({ key, ...entry }))
+    .sort((a, b) => (b.count - a.count) || a.label.localeCompare(b.label));
+
+  if (activeTagFilter !== 'all' && !tagEntries.some((entry) => entry.key === activeTagFilter)) {
+    activeTagFilter = 'all';
+  }
+
+  tagSummary.textContent = filteredRecords.length
+    ? `${filteredRecords.length} tagged profiles across ${tagEntries.length} tag${tagEntries.length === 1 ? '' : 's'}. Tags are separate from folders and can be used on any profile type.`
+    : 'No tagged profiles yet. Add comma-separated tags to any profile and it will show up here.';
+
+  tagCloud.innerHTML = [
+    `<button class="tag-pill tag-pill-btn ${activeTagFilter === 'all' ? 'active' : ''}" type="button" data-open-tag="all">All tags</button>`,
+    ...tagEntries.map((entry) => `<button class="tag-pill tag-pill-btn ${activeTagFilter === entry.key ? 'active' : ''}" type="button" data-open-tag="${escapeHtml(entry.label)}">#${escapeHtml(entry.label)} <span class="badge">${entry.count}</span></button>`)
+  ].join('');
+
+  const visibleRecords = activeTagFilter === 'all'
+    ? filteredRecords
+    : filteredRecords.filter((record) => record.tags.some((tag) => normalizeLookupName(tag) === activeTagFilter));
+
+  if (!visibleRecords.length) {
+    tagResultsGrid.innerHTML = '<p class="headmate-hint" style="margin:0">No profiles match that tag yet.</p>';
+    return;
+  }
+
+  tagResultsGrid.innerHTML = visibleRecords.map((record) => {
+    const subtitle = record.subtitle || `${record.tags.length} tag${record.tags.length === 1 ? '' : 's'} linked`;
+    const fieldText = `${record.customFieldCount} custom field${record.customFieldCount === 1 ? '' : 's'}`;
+    const disabledAttr = record.openable ? '' : ' disabled title="Sign into that account to open it directly."';
+    return `
+      <article class="tag-browser-card">
+        <div class="tag-browser-card-head">
+          <div class="tag-browser-main">
+            ${renderAvatarMarkup(record.photo, record.name[0]?.toUpperCase() || '?', record.color || '#6c63ff', 'sm')}
+            <div class="tag-browser-meta">
+              <strong>${escapeHtml(record.name)}</strong>
+              <span>${escapeHtml(record.type)} • ${escapeHtml(subtitle)}</span>
+            </div>
+          </div>
+          <span class="badge">${escapeHtml(fieldText)}</span>
+        </div>
+        ${renderTagPills(record.tags.join(', '))}
+        <div class="tag-browser-card-actions">
+          <button class="btn-sm" type="button" data-tag-profile-module="${escapeHtml(record.module)}" data-tag-profile-key="${escapeHtml(record.key)}"${disabledAttr}>Open profile</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
 document.addEventListener('click', (event) => {
   const link = event.target.closest('.relation-link[data-nav-module][data-nav-key]');
   if (!link) return;
@@ -2930,6 +3126,37 @@ document.addEventListener('click', (event) => {
   event.stopPropagation();
   openProfileFromLink(link.dataset.navModule, link.dataset.navKey);
 });
+
+document.addEventListener('click', (event) => {
+  const tagButton = event.target.closest('[data-open-tag]');
+  if (!tagButton) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const rawTag = String(tagButton.dataset.openTag || 'all').trim();
+  activeTagFilter = rawTag.toLowerCase() === 'all' ? 'all' : normalizeLookupName(rawTag);
+  navigateTo('tags');
+  renderTagsModule();
+});
+
+if (clearTagFilterBtn) {
+  clearTagFilterBtn.addEventListener('click', () => {
+    activeTagFilter = 'all';
+    if (tagTypeFilter) tagTypeFilter.value = 'all';
+    renderTagsModule();
+  });
+}
+
+if (tagTypeFilter) {
+  tagTypeFilter.addEventListener('change', () => renderTagsModule());
+}
+
+if (tagResultsGrid) {
+  tagResultsGrid.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-tag-profile-module][data-tag-profile-key]');
+    if (!button || button.hasAttribute('disabled')) return;
+    openProfileFromLink(button.dataset.tagProfileModule || '', button.dataset.tagProfileKey || '');
+  });
+}
 
 function normalizeHexColor(value, fallback = '#6c63ff') {
   const raw = String(value || '').trim();
@@ -2987,26 +3214,30 @@ function renderAvatarMarkup(value, fallbackText = '?', colorValue = '#6c63ff', s
   return `<div class="${className}" style="${styleParts.join(';')}">${hasMedia ? '' : escapeHtml(raw || fallback)}</div>`;
 }
 
-function renderTagPills(text) {
-  const tags = parseLinkedTextList(text).map((tag) => tag.replace(/^#/, '').trim()).filter(Boolean);
+function renderTagPills(text, options = {}) {
+  const tags = [...new Set(parseLinkedTextList(text).map((tag) => tag.replace(/^#/, '').trim()).filter(Boolean))];
   if (!tags.length) return escapeHtml(String(text || 'Not set'));
-  return `<div class="tag-pill-row">${tags.map((tag) => `<span class="tag-pill">#${escapeHtml(tag)}</span>`).join('')}</div>`;
+  const clickable = options.clickable !== false;
+  return `<div class="tag-pill-row">${tags.map((tag) => clickable
+    ? `<button class="tag-pill tag-pill-btn" type="button" data-open-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`
+    : `<span class="tag-pill">#${escapeHtml(tag)}</span>`).join('')}</div>`;
 }
 
 function parseCustomFieldEntries(value) {
   return String(value || '')
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
     .filter(Boolean)
     .filter((line) => !['not set', 'none', 'n/a'].includes(line.toLowerCase()))
     .map((line, index) => {
-      const [label, ...rest] = line.split(':');
-      if (!rest.length) {
-        return { label: `Custom ${index + 1}`, value: label.trim() };
+      const dividerIndex = line.search(/[:=]/);
+      if (dividerIndex === -1) {
+        return { label: `Custom ${index + 1}`, value: line.trim() };
       }
+
       return {
-        label: label.trim() || `Custom ${index + 1}`,
-        value: rest.join(':').trim() || 'Not set'
+        label: line.slice(0, dividerIndex).trim() || `Custom ${index + 1}`,
+        value: line.slice(dividerIndex + 1).trim() || 'Not set'
       };
     })
     .filter((entry) => entry.value && !['not set', 'none', 'n/a'].includes(entry.value.toLowerCase()));
@@ -3015,7 +3246,7 @@ function parseCustomFieldEntries(value) {
 function renderCustomFieldSummary(value) {
   const entries = parseCustomFieldEntries(value);
   if (!entries.length) return escapeHtml(String(value || 'Not set'));
-  return `<span class="setting-value">${entries.length} custom field${entries.length === 1 ? '' : 's'} saved</span>`;
+  return `<span class="setting-value">${entries.length} custom profile field${entries.length === 1 ? '' : 's'} saved</span>`;
 }
 
 function renderInlineMarkdown(text) {
@@ -3110,9 +3341,9 @@ function renderFieldInput(field, id, safeValue) {
           : field.key === 'partnerHeadmates'
             ? 'Example: Jun (Host), Mira (Protector)'
             : field.key === 'tags' || field.key === 'tag'
-              ? 'Comma-separated tags'
+              ? 'Comma-separated tags like admin, comfort, fronting'
               : field.key === 'customFields'
-                ? 'Example: Favorite drink: Tea\nSafe show: Bee and PuppyCat'
+                ? 'One field per line, like:\nPronouns: they/them\nComfort item: Lavender tea'
                 : '';
 
   if (field.key === 'color') {
@@ -3120,7 +3351,10 @@ function renderFieldInput(field, id, safeValue) {
     return `<label>${field.label}<div class="color-input-row"><input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || color))}" placeholder="#6c63ff" /><input type="color" id="${id}Picker" data-color-target="${id}" value="${color}" /></div></label>`;
   }
   if (field.type === 'textarea') {
-    return `<label>${field.label}<textarea class="setting-input" id="${id}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''}>${escapeHtml(String(safeValue || ''))}</textarea></label>`;
+    const helper = field.key === 'customFields'
+      ? `<p class="field-helper">Create actual profile fields here with one line per field in <code>Label: Value</code> format.</p><button class="btn-sm" type="button" data-add-custom-field="${id}">+ Add Field Row</button>`
+      : '';
+    return `<label>${field.label}<textarea class="setting-input" id="${id}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''}>${escapeHtml(String(safeValue || ''))}</textarea>${helper}</label>`;
   }
   if (field.key === 'folder') {
     return `<label>${field.label}<input class="setting-input" id="${id}" list="headmateFolderOptions" type="text" value="${escapeHtml(String(safeValue || ''))}" placeholder="e.g. Front Crew" /></label>`;
@@ -3148,6 +3382,20 @@ function bindColorPickers(container) {
     });
   });
 }
+
+document.addEventListener('click', (event) => {
+  const addFieldBtn = event.target.closest('[data-add-custom-field]');
+  if (!addFieldBtn) return;
+  event.preventDefault();
+
+  const target = document.getElementById(addFieldBtn.dataset.addCustomField || '');
+  if (!target) return;
+
+  const prefix = target.value.trim() ? `${target.value.trim()}\n` : '';
+  target.value = `${prefix}New Field: `;
+  target.focus();
+  target.setSelectionRange(target.value.length, target.value.length);
+});
 
 function applyBannerStyle(el, bannerValue, colorValue, colorVarName = '--headmate-color') {
   if (!el) return;
