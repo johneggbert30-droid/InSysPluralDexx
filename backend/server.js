@@ -416,6 +416,17 @@ app.put('/api/me/state', authRequired, (req, res) => {
     return res.status(400).json({ error: limitError });
   }
 
+  const accountPatch = req.body?.account;
+  if (accountPatch && typeof accountPatch === 'object' && !Array.isArray(accountPatch)) {
+    currentUser.name = String(accountPatch.name || currentUser.name || req.auth.username).trim() || req.auth.username;
+    currentUser.description = String(accountPatch.description || currentUser.description || 'No description set.');
+    currentUser.tags = String(accountPatch.tags || currentUser.tags || 'Not set');
+    currentUser.customFields = String(accountPatch.customFields || currentUser.customFields || 'Not set');
+    currentUser.profilePhoto = String(accountPatch.profilePhoto || currentUser.profilePhoto || req.auth.username?.[0]?.toUpperCase() || 'U');
+    currentUser.banner = String(accountPatch.banner || currentUser.banner || `${req.auth.username} Banner`);
+    currentUser.color = String(accountPatch.color || currentUser.color || '#6c63ff');
+  }
+
   currentUser.hubState = parsedHubState;
   currentUser.hubState.updatedAt = new Date().toISOString();
   currentUser.updatedAt = new Date().toISOString();

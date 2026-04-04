@@ -7006,6 +7006,8 @@ let authToken = '';
 let remoteAccountDirectory = [];
 let remoteHubStateSaveTimer = null;
 let lastRemoteHubStateText = '';
+let lastRemoteAccountStateText = '';
+let initialSessionSyncPending = false;
 const ACCOUNT_STORAGE_KEY = 'ispd7.accounts.v1';
 const ACCOUNT_SESSION_KEY = 'ispd7.session.v1';
 const AUTH_TOKEN_KEY = 'ispd7.auth.token.v1';
@@ -7067,6 +7069,22 @@ function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
     viewerTrustLevel: normalizeAccountTrustLevel(account.viewerTrustLevel, 'private'),
     createdAt: account.createdAt || new Date().toISOString(),
     updatedAt: account.updatedAt || account.createdAt || new Date().toISOString()
+  };
+}
+
+function buildRemoteAccountStatePayload(account = getCurrentAccountRecord()) {
+  if (!account || typeof account !== 'object') return null;
+
+  const username = String(account.username || loggedInAccountKey || 'user').trim().toLowerCase() || 'user';
+  const name = String(account.name || username || 'User').trim() || 'User';
+  return {
+    name,
+    description: String(account.description || 'No description set.'),
+    tags: String(account.tags || 'Not set'),
+    customFields: String(account.customFields || 'Not set'),
+    profilePhoto: String(account.profilePhoto || name[0]?.toUpperCase() || 'U'),
+    banner: String(account.banner || `${name} Banner`),
+    color: String(account.color || '#6c63ff')
   };
 }
 
@@ -7161,9 +7179,11 @@ function loadAccountState() {
       }
       loggedInAccountKey = savedSession;
     }
+    initialSessionSyncPending = USE_BACKEND_AUTH && Boolean(authToken && loggedInAccountKey);
   } catch (_err) {
     loggedInAccountKey = null;
     authToken = '';
+    initialSessionSyncPending = false;
   }
 }
 
@@ -8567,6 +8587,8 @@ function applyHubStateSnapshot(saved = {}, options = {}) {
 function persistHubState(options = {}) {
   const dump = buildHubStateSnapshot();
   const serialized = JSON.stringify(dump);
+  const accountPayload = buildRemoteAccountStatePayload();
+  const serializedAccount = JSON.stringify(accountPayload || {});
 
   try {
     localStorage.setItem(HUB_STATE_STORAGE_KEY, serialized);
@@ -8582,7 +8604,11 @@ function persistHubState(options = {}) {
     return dump;
   }
 
-  if (serialized === lastRemoteHubStateText) {
+  if (initialSessionSyncPending && !options.allowDuringInit) {
+    return dump;
+  }
+
+  if (serialized === lastRemoteHubStateText && serializedAccount === lastRemoteAccountStateText) {
     return dump;
   }
 
@@ -8591,13 +8617,19 @@ function persistHubState(options = {}) {
     try {
       const result = await apiRequest('/api/me/state', {
         method: 'PUT',
-        body: JSON.stringify({ hubState: dump })
+        body: JSON.stringify({
+          hubState: dump,
+          account: accountPayload || undefined
+        })
       });
       if (result?.account) {
         const savedAccount = normalizeRemoteAccount(result.account, loggedInAccountKey);
         accounts[savedAccount.username] = savedAccount;
         loggedInAccountKey = savedAccount.username;
         persistAccountState();
+        lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(savedAccount) || {});
+      } else {
+        lastRemoteAccountStateText = serializedAccount;
       }
       lastRemoteHubStateText = JSON.stringify(result?.hubState || dump);
     } catch (err) {
@@ -8626,7 +8658,12 @@ function loadHubState() {
 }
 
 async function syncSessionFromBackend() {
-  if (!USE_BACKEND_AUTH || !authToken) return;
+  if (!USE_BACKEND_AUTH || !authToken) {
+    initialSessionSyncPending = false;
+    return;
+  }
+
+  initialSessionSyncPending = true;
 
   try {
     const result = await apiRequest('/api/me');
@@ -8636,6 +8673,7 @@ async function syncSessionFromBackend() {
     }
     accounts[remoteAccount.username] = remoteAccount;
     loggedInAccountKey = remoteAccount.username;
+    lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(remoteAccount) || {});
     persistAccountState();
 
     let localSnapshot = null;
@@ -8662,13 +8700,15 @@ async function syncSessionFromBackend() {
       lastRemoteHubStateText = JSON.stringify(remoteSnapshot);
     } else if (shouldUseLocalSnapshot && localSnapshot) {
       applyHubStateSnapshot(localSnapshot, { persistLocal: true });
-      persistHubState({ immediate: true });
+      persistHubState({ immediate: true, allowDuringInit: true });
     }
 
     await refreshAccountDirectoryFromBackend();
     renderAccountModule();
   } catch (_err) {
     // Keep the last local session if the backend is temporarily unavailable.
+  } finally {
+    initialSessionSyncPending = false;
   }
 }
 
