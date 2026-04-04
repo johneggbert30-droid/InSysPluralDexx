@@ -12,7 +12,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-this-before-deploying';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
-const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 6 * 1024 * 1024);
+const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 14 * 1024 * 1024);
 const MAX_SYSTEMS_PER_ACCOUNT = Number(process.env.MAX_SYSTEMS_PER_ACCOUNT || 10);
 const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT || 2000);
 const REMOVED_ACCOUNT_USERNAMES = new Set(['pandorasbox']);
@@ -22,7 +22,7 @@ app.use(cors({
     ? FRONTEND_ORIGIN.split(',').map((entry) => entry.trim()).filter(Boolean)
     : true
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '20mb' }));
 
 function ensureDataFile() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -119,6 +119,32 @@ function cloneJson(value, fallback = {}) {
   } catch (_err) {
     return Array.isArray(fallback) ? [...fallback] : { ...fallback };
   }
+}
+
+function isEmbeddedMediaValue(value) {
+  return /^data:image\//i.test(String(value || '').trim());
+}
+
+function createCompactMediaPlaceholder(keyHint = '') {
+  return keyHint === 'profilePhoto' ? '' : 'Uploaded media omitted from compact backup';
+}
+
+function stripEmbeddedMedia(value, keyHint = '') {
+  if (typeof value === 'string') {
+    return isEmbeddedMediaValue(value) ? createCompactMediaPlaceholder(keyHint) : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripEmbeddedMedia(entry, keyHint));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const output = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    output[key] = stripEmbeddedMedia(entry, key);
+  });
+  return output;
 }
 
 function normalizeHubState(hubState = {}) {
@@ -406,11 +432,18 @@ app.put('/api/me/state', authRequired, (req, res) => {
   }
 
   const serialized = JSON.stringify(hubState);
+  let parsedHubState = normalizeHubState(JSON.parse(serialized));
+  let compactedForStorage = false;
+
   if (Buffer.byteLength(serialized, 'utf8') > MAX_HUB_STATE_BYTES) {
-    return res.status(413).json({ error: 'Saved hub state is too large.' });
+    parsedHubState = normalizeHubState(stripEmbeddedMedia(parsedHubState));
+    const compactSerialized = JSON.stringify(parsedHubState);
+    if (Buffer.byteLength(compactSerialized, 'utf8') > MAX_HUB_STATE_BYTES) {
+      return res.status(413).json({ error: 'Saved hub state is too large.' });
+    }
+    compactedForStorage = true;
   }
 
-  const parsedHubState = normalizeHubState(JSON.parse(serialized));
   const limitError = validateHubStateLimits(parsedHubState);
   if (limitError) {
     return res.status(400).json({ error: limitError });
@@ -435,6 +468,7 @@ app.put('/api/me/state', authRequired, (req, res) => {
 
   return res.json({
     ok: true,
+    compacted: compactedForStorage,
     hubState: currentUser.hubState,
     account: sanitizeUser(currentUser, store, req.auth.username)
   });

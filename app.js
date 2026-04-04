@@ -3906,6 +3906,9 @@ const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
 const MAX_EMBEDDED_IMAGE_BYTES = 350 * 1024;
 const MAX_EMBEDDED_GIF_BYTES = 900 * 1024;
 const MAX_SAFE_LOCAL_STATE_BYTES = 4 * 1024 * 1024;
+const MAX_SAFE_REMOTE_STATE_BYTES = 12 * 1024 * 1024;
+const ACCOUNT_STORAGE_BACKUP_KEY = 'ispd7.accounts.backup.v1';
+const HUB_STATE_BACKUP_KEY = 'ispd7.hub.state.backup.v1';
 let lastStorageWarningText = '';
 
 function estimateStringBytes(value) {
@@ -3924,18 +3927,24 @@ function getEmbeddedMediaByteLimit(value = '') {
   return /^data:image\/gif/i.test(String(value || '').trim()) ? MAX_EMBEDDED_GIF_BYTES : MAX_EMBEDDED_IMAGE_BYTES;
 }
 
-function sanitizeEmbeddedMediaValue(value, fallback = '') {
+function createStorageMediaPlaceholder(keyHint = '') {
+  return keyHint === 'profilePhoto' ? '' : 'Uploaded media omitted from compact backup';
+}
+
+function sanitizeEmbeddedMediaValue(value, fallback = '', options = {}) {
   const raw = String(value || '').trim();
   if (!isEmbeddedMediaValue(raw)) return raw || fallback;
+  if (options.stripAllEmbeddedMedia) return fallback;
   return estimateStringBytes(raw) <= getEmbeddedMediaByteLimit(raw) ? raw : fallback;
 }
 
-function cloneForStorage(value, keyHint = '') {
+function cloneForStorage(value, keyHint = '', options = {}) {
   if (typeof value === 'string') {
-    return isEmbeddedMediaValue(value) ? sanitizeEmbeddedMediaValue(value, keyHint === 'profilePhoto' ? '' : '') : value;
+    if (!isEmbeddedMediaValue(value)) return value;
+    return sanitizeEmbeddedMediaValue(value, createStorageMediaPlaceholder(keyHint), options);
   }
   if (Array.isArray(value)) {
-    return value.map((entry) => cloneForStorage(entry, keyHint));
+    return value.map((entry) => cloneForStorage(entry, keyHint, options));
   }
   if (!value || typeof value !== 'object') {
     return value;
@@ -3943,9 +3952,75 @@ function cloneForStorage(value, keyHint = '') {
 
   const output = {};
   Object.entries(value).forEach(([key, entry]) => {
-    output[key] = cloneForStorage(entry, key);
+    output[key] = cloneForStorage(entry, key, options);
   });
   return output;
+}
+
+function buildStorageSafeClone(value, maxBytes = MAX_SAFE_LOCAL_STATE_BYTES, options = {}) {
+  const fullValue = cloneForStorage(value, '', options);
+  const fullSerialized = JSON.stringify(fullValue);
+  if (estimateStringBytes(fullSerialized) <= maxBytes) {
+    return { value: fullValue, serialized: fullSerialized, compacted: false };
+  }
+
+  const compactValue = cloneForStorage(value, '', { ...options, stripAllEmbeddedMedia: true });
+  return {
+    value: compactValue,
+    serialized: JSON.stringify(compactValue),
+    compacted: true
+  };
+}
+
+function readStoredJsonWithBackup(primaryKey, backupKey = '', fallback = null) {
+  const tryRead = (key) => {
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  };
+
+  try {
+    const primaryValue = tryRead(primaryKey);
+    if (primaryValue !== null) return primaryValue;
+  } catch (_err) {
+    // Fall through to backup.
+  }
+
+  try {
+    const backupValue = tryRead(backupKey);
+    if (backupValue !== null) return backupValue;
+  } catch (_err) {
+    // Ignore malformed backup data too.
+  }
+
+  return fallback;
+}
+
+function writeStoredJsonWithBackup(primaryKey, backupKey, value, options = {}) {
+  const maxBytes = Number(options.maxBytes || MAX_SAFE_LOCAL_STATE_BYTES) || MAX_SAFE_LOCAL_STATE_BYTES;
+  const warningMessage = String(options.warningMessage || '').trim();
+  const persistSerialized = (serializedText) => {
+    localStorage.setItem(primaryKey, serializedText);
+    if (backupKey) localStorage.setItem(backupKey, serializedText);
+  };
+
+  const attempt = buildStorageSafeClone(value, maxBytes);
+  try {
+    persistSerialized(attempt.serialized);
+    if (attempt.compacted && warningMessage) showStorageWarning(warningMessage);
+    return attempt;
+  } catch (_err) {
+    const fallbackAttempt = buildStorageSafeClone(value, Math.max(256 * 1024, Math.floor(maxBytes * 0.85)), { stripAllEmbeddedMedia: true });
+    try {
+      persistSerialized(fallbackAttempt.serialized);
+    } catch (_secondaryErr) {
+      if (warningMessage) showStorageWarning(warningMessage);
+      return fallbackAttempt;
+    }
+    if (warningMessage) showStorageWarning(warningMessage);
+    return fallbackAttempt;
+  }
 }
 
 function showStorageWarning(message) {
@@ -7088,6 +7163,23 @@ function buildRemoteAccountStatePayload(account = getCurrentAccountRecord()) {
   };
 }
 
+function buildAccountStoragePayload(accountsMap = accounts) {
+  const cachedAccounts = {};
+  Object.entries(accountsMap || {}).forEach(([key, account]) => {
+    if (!key || !account || typeof account !== 'object') return;
+    const cachedAccount = cloneJsonData(account, {});
+    if (cachedAccount.hubState && typeof cachedAccount.hubState === 'object') {
+      cachedAccount.hubState = {
+        version: Number(cachedAccount.hubState.version || 1),
+        updatedAt: cachedAccount.hubState.updatedAt || cachedAccount.updatedAt || new Date().toISOString(),
+        activeUser: cachedAccount.hubState.activeUser || 'No system'
+      };
+    }
+    cachedAccounts[key] = cachedAccount;
+  });
+  return cachedAccounts;
+}
+
 async function apiRequest(path, options = {}) {
   if (!API_BASE_URL) {
     throw new Error('Backend URL is not configured yet.');
@@ -7139,13 +7231,16 @@ async function apiRequest(path, options = {}) {
 
 function persistAccountState() {
   try {
-    const currentAccounts = cloneForStorage(accounts);
-    const existingAccounts = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || '{}');
+    const currentAccounts = buildAccountStoragePayload(accounts);
+    const existingAccounts = readStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, {});
     const mergedAccounts = existingAccounts && typeof existingAccounts === 'object' && !Array.isArray(existingAccounts)
       ? { ...existingAccounts, ...currentAccounts }
       : currentAccounts;
 
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(mergedAccounts));
+    writeStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, mergedAccounts, {
+      maxBytes: Math.max(512 * 1024, MAX_SAFE_LOCAL_STATE_BYTES - (256 * 1024)),
+      warningMessage: 'Uploaded media made the account cache too large, so a compact backup was saved to stop data wipes. Your core data will still persist.'
+    });
   } catch (_err) {
     showStorageWarning('Some local data could not be cached because uploaded images/GIFs are too large. Smaller files or image URLs will save more reliably.');
   }
@@ -7163,8 +7258,8 @@ function persistAccountState() {
 
 function loadAccountState() {
   try {
-    const savedAccounts = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || '{}');
-    if (savedAccounts && typeof savedAccounts === 'object') {
+    const savedAccounts = readStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, {});
+    if (savedAccounts && typeof savedAccounts === 'object' && !Array.isArray(savedAccounts)) {
       Object.entries(savedAccounts).forEach(([key, value]) => {
         if (!key || !value || typeof value !== 'object') return;
         accounts[key] = normalizeRemoteAccount(value, key);
@@ -8590,11 +8685,10 @@ function persistHubState(options = {}) {
   const accountPayload = buildRemoteAccountStatePayload();
   const serializedAccount = JSON.stringify(accountPayload || {});
 
-  try {
-    localStorage.setItem(HUB_STATE_STORAGE_KEY, serialized);
-  } catch (_err) {
-    showStorageWarning('The browser cache is full, so some image/GIF-heavy changes could not be stored locally. Smaller files or image URLs will prevent resets.');
-  }
+  writeStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, dump, {
+    maxBytes: MAX_SAFE_LOCAL_STATE_BYTES,
+    warningMessage: 'Uploaded media made the browser cache too large, so a compact backup was saved to stop data wipes. Use smaller images or image URLs for the most reliable persistence.'
+  });
 
   if (estimateStringBytes(serialized) > MAX_SAFE_LOCAL_STATE_BYTES) {
     showStorageWarning('Your saved data is getting too large for reliable browser storage. Smaller uploads or pasted image URLs will keep it from being wiped.');
@@ -8608,20 +8702,44 @@ function persistHubState(options = {}) {
     return dump;
   }
 
-  if (serialized === lastRemoteHubStateText && serializedAccount === lastRemoteAccountStateText) {
+  const preferredRemoteState = estimateStringBytes(serialized) <= MAX_SAFE_REMOTE_STATE_BYTES
+    ? { value: dump, serialized, compacted: false }
+    : buildStorageSafeClone(dump, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
+
+  if (preferredRemoteState.serialized === lastRemoteHubStateText && serializedAccount === lastRemoteAccountStateText) {
     return dump;
   }
 
   if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
   remoteHubStateSaveTimer = window.setTimeout(async () => {
     try {
-      const result = await apiRequest('/api/me/state', {
-        method: 'PUT',
-        body: JSON.stringify({
-          hubState: dump,
-          account: accountPayload || undefined
-        })
-      });
+      let result;
+      try {
+        result = await apiRequest('/api/me/state', {
+          method: 'PUT',
+          body: JSON.stringify({
+            hubState: preferredRemoteState.value,
+            account: accountPayload || undefined
+          })
+        });
+      } catch (err) {
+        const shouldRetryCompact = !preferredRemoteState.compacted && (err?.status === 413 || /too large/i.test(String(err?.message || '')));
+        if (!shouldRetryCompact) throw err;
+
+        const compactRemoteState = buildStorageSafeClone(dump, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
+        result = await apiRequest('/api/me/state', {
+          method: 'PUT',
+          body: JSON.stringify({
+            hubState: compactRemoteState.value,
+            account: accountPayload || undefined
+          })
+        });
+      }
+
+      if (result?.compacted) {
+        showStorageWarning('The latest upload-heavy save was compacted so the rest of your data would not wipe. Use smaller images or image URLs to keep every upload across refreshes.');
+      }
+
       if (result?.account) {
         const savedAccount = normalizeRemoteAccount(result.account, loggedInAccountKey);
         accounts[savedAccount.username] = savedAccount;
@@ -8631,7 +8749,7 @@ function persistHubState(options = {}) {
       } else {
         lastRemoteAccountStateText = serializedAccount;
       }
-      lastRemoteHubStateText = JSON.stringify(result?.hubState || dump);
+      lastRemoteHubStateText = JSON.stringify(result?.hubState || preferredRemoteState.value);
     } catch (err) {
       showStorageWarning(err?.message || 'The latest save could not reach the backend.');
     }
@@ -8642,7 +8760,7 @@ function persistHubState(options = {}) {
 
 function loadHubState() {
   try {
-    const saved = JSON.parse(localStorage.getItem(HUB_STATE_STORAGE_KEY) || 'null');
+    const saved = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
     if (!saved || typeof saved !== 'object') return;
 
     if (USE_BACKEND_AUTH) {
