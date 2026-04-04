@@ -244,7 +244,10 @@ select {
    ===================== */
 .layout {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
   margin-top: var(--topbar-h);
   min-height: calc(100vh - var(--topbar-h));
   background: var(--bg);
@@ -257,13 +260,14 @@ select {
   width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border);
-  flex-shrink: 0;
+  flex: 0 0 var(--sidebar-w);
+  align-self: stretch;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 12px 8px calc(28px + env(safe-area-inset-bottom, 0px));
-  transition: width var(--transition), padding var(--transition);
+  transition: width var(--transition), padding var(--transition), flex-basis var(--transition);
   position: sticky;
   top: var(--topbar-h);
   height: calc(100vh - var(--topbar-h));
@@ -285,7 +289,7 @@ select {
   pointer-events: auto;
 }
 
-.sidebar.collapsed { width: 60px; padding: 12px 4px; }
+.sidebar.collapsed { width: 60px; flex-basis: 60px; padding: 12px 4px; }
 .sidebar.collapsed .nav-label { display: none; }
 .sidebar.collapsed .nav-icon { margin: 0 auto; }
 .sidebar.collapsed .sidebar-nav li { justify-content: center; }
@@ -315,14 +319,19 @@ select {
    Main Content
    ===================== */
 .main-content {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   display: flex;
   flex-direction: column;
-  width: 100%;
+  width: auto;
+  max-width: calc(100% - var(--sidebar-w));
   min-width: 0;
   min-height: calc(100vh - var(--topbar-h));
   overflow: visible;
   background: var(--bg);
+}
+
+.sidebar.collapsed + .main-content {
+  max-width: calc(100% - 60px);
 }
 
 /* =====================
@@ -2865,6 +2874,7 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
     bottom: 0;
     z-index: 90;
     width: min(82vw, 320px);
+    flex-basis: auto;
     height: calc(100dvh - var(--topbar-h));
     max-height: calc(100dvh - var(--topbar-h));
     transform: translateX(-105%);
@@ -2900,6 +2910,8 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 
   .main-content {
     margin-left: 0 !important;
+    max-width: 100%;
+    width: 100%;
   }
 
   .module-page {
