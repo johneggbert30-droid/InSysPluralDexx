@@ -265,13 +265,17 @@ app.post('/api/auth/login', async (req, res) => {
   const store = readStore();
   const user = store.users[username];
 
+  if (!/^[a-z0-9_-]{2,32}$/.test(username)) {
+    return res.status(400).json({ error: 'Enter a valid username using 2-32 letters, numbers, _ or -.' });
+  }
+
   if (!user) {
-    return res.status(401).json({ error: 'Invalid username or password.' });
+    return res.status(404).json({ error: 'No account exists with that username.' });
   }
 
   const matches = await bcrypt.compare(password, user.passwordHash || '');
   if (!matches) {
-    return res.status(401).json({ error: 'Invalid username or password.' });
+    return res.status(401).json({ error: 'Incorrect password.' });
   }
 
   return res.json({

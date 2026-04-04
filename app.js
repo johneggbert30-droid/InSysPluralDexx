@@ -7089,8 +7089,12 @@ if (loginSubmitBtn) {
     }
 
     const acct = accounts[username];
-    if (!acct || acct.password !== password) {
-      showAccountError(loginError, 'Invalid username or password.');
+    if (!acct) {
+      showAccountError(loginError, 'No account exists with that username.');
+      return;
+    }
+    if (acct.password !== password) {
+      showAccountError(loginError, 'Incorrect password.');
       return;
     }
     loggedInAccountKey = username;
