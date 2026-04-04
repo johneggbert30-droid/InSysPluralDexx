@@ -2202,15 +2202,7 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   font-size: 10px;
   color: var(--text-muted);
 }
-  padding: 7px 12px;
-  border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface2);
-  color: var(--text);
-  font-size: 14px;
-  outline: none;
-  transition: border-color var(--transition);
-}
+
 .setting-select:focus, .setting-input:focus { border-color: var(--accent); }
 
 /* =====================
@@ -3264,6 +3256,223 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   gap: 8px;
   margin-top: 14px;
   flex-wrap: wrap;
+}
+
+/* =====================
+   Global compact pass
+   ===================== */
+.card-grid,
+.dashboard-preview-grid,
+.people-grid,
+.journal-list,
+.switchboard-grid,
+.gallery-grid,
+.account-friends-list,
+.system-profiles-grid,
+.subsystems-grid,
+.history-timeline {
+  gap: 10px;
+}
+
+.card-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.dashboard-preview-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.people-grid { grid-template-columns: repeat(auto-fill, minmax(145px, 1fr)); }
+.switchboard-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.gallery-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.system-profiles-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.subsystems-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin-bottom: 16px; }
+
+.card,
+.person-card,
+.journal-card,
+.switch-card,
+.account-friend-card,
+.profile-editor,
+.system-profile-content,
+.history-event-body {
+  padding: 12px 14px;
+}
+
+.person-card {
+  gap: 8px;
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+
+.status-dot {
+  top: 16px;
+  right: 16px;
+}
+
+.dashboard-chart-panel {
+  min-height: 190px;
+}
+
+.dashboard-donut-wrap,
+.dashboard-pie-wrap {
+  grid-template-columns: minmax(120px, 148px) 1fr;
+  gap: 12px;
+}
+
+.dashboard-donut,
+.dashboard-pie {
+  width: 132px;
+  height: 132px;
+}
+
+.dashboard-donut-center,
+.dashboard-pie-center {
+  width: 88px;
+  height: 88px;
+}
+
+.dashboard-donut-center strong,
+.dashboard-pie-center strong {
+  font-size: 1.2rem;
+}
+
+.dashboard-bar-row {
+  grid-template-columns: 72px minmax(0, 1fr) 34px;
+  gap: 8px;
+}
+
+.dashboard-completion-card,
+.dashboard-preview-card,
+.system-profile-field {
+  padding: 10px 12px;
+}
+
+.quick-links,
+.journal-meta,
+.account-friend-main,
+.history-event-meta,
+.history-event-actions,
+.system-profile-actions,
+.headmate-actions,
+.log-shortcuts-list {
+  gap: 8px;
+}
+
+.chat-layout {
+  min-height: min(56vh, 500px);
+}
+
+.chat-sidebar {
+  width: 220px;
+  padding: 8px 6px;
+}
+
+.chat-convo-header {
+  padding: 8px 10px;
+  min-height: 48px;
+}
+
+.chat-messages {
+  padding: 10px 10px 12px;
+  gap: 8px;
+}
+
+.chat-input-bar {
+  padding: 10px 12px;
+}
+
+.chat-input-bar input,
+.poll-option,
+.bubble {
+  padding: 8px 10px;
+}
+
+.gallery-item {
+  padding: 8px;
+}
+
+.calendar-header {
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.calendar-header h2 {
+  font-size: 16px;
+}
+
+.calendar-grid {
+  gap: 3px;
+}
+
+.cal-day-name {
+  padding: 6px 0;
+}
+
+.cal-day {
+  padding: 9px 4px;
+  font-size: 13px;
+}
+
+.task-item,
+.subsystem-hub-member,
+.med-checkin-item,
+.log-shortcut-chip {
+  padding: 8px 10px;
+}
+
+.profile-editor-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+}
+
+.headmate-profile-banner {
+  padding: 10px 12px;
+}
+
+.headmate-profile-grid {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.system-profile-banner {
+  height: 70px;
+}
+
+.system-profile-photo {
+  width: 54px;
+  height: 54px;
+  top: -28px;
+  left: 12px;
+  font-size: 20px;
+}
+
+.system-profile-title {
+  margin-top: 26px;
+  margin-bottom: 8px;
+}
+
+.system-profile-title h4,
+.journal-card h3,
+.history-event-body h3 {
+  font-size: 15px;
+}
+
+.system-profile-fields,
+.subsystem-hub-list,
+.med-checkin-list {
+  gap: 6px;
+}
+
+.subsystem-hub {
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.med-tracker-form {
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.history-timeline {
+  margin-top: 12px;
+}
+
+.history-event-card {
+  gap: 10px;
 }
 
 @media (max-width: 900px) {
