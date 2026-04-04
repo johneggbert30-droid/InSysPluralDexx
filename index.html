@@ -22,27 +22,11 @@
     </div>
     <div class="topbar-right">
       <div class="user-switcher" id="userSwitcherBtn">
-        <div class="avatar" id="currentAvatar">A</div>
-        <span class="username" id="currentUsername">Alice</span>
+        <div class="avatar" id="currentAvatar">?</div>
+        <span class="username" id="currentUsername">No system</span>
         <span class="chevron">&#9662;</span>
       </div>
       <div class="user-dropdown" id="userDropdown">
-        <div class="user-option active" data-user="Alice" data-initial="A" data-color="#6c63ff">
-          <div class="avatar" style="background:#6c63ff">A</div>
-          <span>Alice</span>
-        </div>
-        <div class="user-option" data-user="Bob" data-initial="B" data-color="#ff6584">
-          <div class="avatar" style="background:#ff6584">B</div>
-          <span>Bob</span>
-        </div>
-        <div class="user-option" data-user="Carol" data-initial="C" data-color="#43d9ad">
-          <div class="avatar" style="background:#43d9ad">C</div>
-          <span>Carol</span>
-        </div>
-        <div class="user-option" data-user="Dan" data-initial="D" data-color="#f5a623">
-          <div class="avatar" style="background:#f5a623">D</div>
-          <span>Dan</span>
-        </div>
         <hr />
         <div class="user-option add-user" id="addUserBtn">
           <div class="avatar" style="background:#888">+</div>
@@ -73,6 +57,10 @@
         <li class="nav-item" data-module="friends">
           <span class="nav-icon">&#9786;</span>
           <span class="nav-label">Partners</span>
+        </li>
+        <li class="nav-item" data-module="accountFriends">
+          <span class="nav-icon">&#129309;</span>
+          <span class="nav-label">Friends</span>
         </li>
         <li class="nav-item" data-module="partners">
           <span class="nav-icon">&#9993;</span>
@@ -160,10 +148,10 @@
           </section>
 
           <div class="card-grid">
-            <div class="card"><h3>Systems</h3><p class="stat" id="dashboardActiveMembersStat">4</p></div>
-            <div class="card"><h3>Headmates</h3><p class="stat" id="dashboardHeadmatesStat">128</p></div>
-            <div class="card"><h3>Unread Messages</h3><p class="stat" id="dashboardUnreadMessagesStat">47</p></div>
-            <div class="card"><h3>History Events</h3><p class="stat" id="dashboardHistoryEventsStat">12</p></div>
+            <div class="card"><h3>Systems</h3><p class="stat" id="dashboardActiveMembersStat">0</p></div>
+            <div class="card"><h3>Headmates</h3><p class="stat" id="dashboardHeadmatesStat">0</p></div>
+            <div class="card"><h3>Unread Messages</h3><p class="stat" id="dashboardUnreadMessagesStat">0</p></div>
+            <div class="card"><h3>History Events</h3><p class="stat" id="dashboardHistoryEventsStat">0</p></div>
           </div>
 
           <div class="widget-row">
@@ -319,9 +307,9 @@
           <div class="widget">
             <h3>Current Account</h3>
             <div class="profile-card" style="margin:0">
-              <div class="avatar xl" id="systemActiveAvatar" style="background:#6c63ff">A</div>
+              <div class="avatar xl" id="systemActiveAvatar" style="background:#888">?</div>
               <div class="profile-info">
-                <h2 id="systemActiveName">Alice</h2>
+                <h2 id="systemActiveName">No system</h2>
                 <p>Active account in this session</p>
               </div>
             </div>
@@ -573,9 +561,7 @@
           <table class="data-table">
             <thead><tr><th>From</th><th>Subject</th><th>Date</th><th>Status</th></tr></thead>
             <tbody>
-              <tr><td><span class="badge">Bob</span></td><td>Parts update</td><td>Today 09:30</td><td><span class="badge green">Unread</span></td></tr>
-              <tr><td><span class="badge">Carol</span></td><td>Gallery upload done</td><td>Today 08:15</td><td><span class="badge">Read</span></td></tr>
-              <tr><td><span class="badge">System</span></td><td>Daily check-in completed</td><td>Yesterday</td><td><span class="badge">Read</span></td></tr>
+              <tr><td colspan="4" class="empty-state-cell">No messages yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -616,19 +602,9 @@
           </div>
           <div class="journal-list">
             <div class="journal-card">
-              <div class="journal-meta"><span class="journal-date">Apr 2, 2026</span><span class="badge">Safety</span></div>
-              <h3>Fronting Consent Rule</h3>
-              <p>Ask before front-pulling unless there is an urgent safety concern. Use Inner Chat for non-urgent requests.</p>
-            </div>
-            <div class="journal-card">
-              <div class="journal-meta"><span class="journal-date">Apr 1, 2026</span><span class="badge">Communication</span></div>
-              <h3>Conflict Cooldown Rule</h3>
-              <p>If conflict spikes, pause for 20 minutes, switch to text-only communication, and return with tone tags.</p>
-            </div>
-            <div class="journal-card">
-              <div class="journal-meta"><span class="journal-date">Mar 30, 2026</span><span class="badge">Health</span></div>
-              <h3>Medication Confirmation Rule</h3>
-              <p>When medication is taken, log a check-in in Health with timestamp and dose details for accountability.</p>
+              <div class="journal-meta"><span class="badge">Empty</span></div>
+              <h3>No rules yet</h3>
+              <p>Create shared rules here when you are ready.</p>
             </div>
           </div>
         </div>
@@ -641,14 +617,11 @@
             <button class="btn-primary">+ Upload</button>
           </div>
           <div class="gallery-grid">
-            <div class="gallery-item" style="background:linear-gradient(135deg,#6c63ff,#a29bfe)"><span>Image 01</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#ff6584,#fd79a8)"><span>Image 02</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#43d9ad,#00cec9)"><span>Image 03</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#f5a623,#fdcb6e)"><span>Image 04</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#e17055,#fab1a0)"><span>Image 05</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#0984e3,#74b9ff)"><span>Image 06</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#6c63ff,#ff6584)"><span>Image 07</span></div>
-            <div class="gallery-item" style="background:linear-gradient(135deg,#43d9ad,#6c63ff)"><span>Image 08</span></div>
+            <div class="journal-card" style="grid-column: 1 / -1; margin: 0;">
+              <div class="journal-meta"><span class="badge">Empty</span></div>
+              <h3>No media uploaded yet</h3>
+              <p>Use upload when you want to add images, GIFs, or other references.</p>
+            </div>
           </div>
         </div>
       </section>
@@ -797,6 +770,28 @@
               <button class="btn-primary" id="saveTerminologyBtn" style="margin-top:.75rem">Save Terminology</button>
             </div>
 
+            <div class="settings-group">
+              <h3>Tab Visibility</h3>
+              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">Choose which tabs appear in the sidebar. Member Profile and Settings always stay available.</p>
+              <div class="setting-row"><label>Dashboard</label><label class="toggle"><input type="checkbox" id="tabDashboardVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Headmates</label><label class="toggle"><input type="checkbox" id="tabPartsVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>System</label><label class="toggle"><input type="checkbox" id="tabSystemVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Partners</label><label class="toggle"><input type="checkbox" id="tabPartnersVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Friends</label><label class="toggle"><input type="checkbox" id="tabAccountFriendsVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Subsystems</label><label class="toggle"><input type="checkbox" id="tabSubsystemsVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Items</label><label class="toggle"><input type="checkbox" id="tabItemsVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Tags</label><label class="toggle"><input type="checkbox" id="tabTagsVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>System Journal</label><label class="toggle"><input type="checkbox" id="tabJournalVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Inner Chat</label><label class="toggle"><input type="checkbox" id="tabChatVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Messages</label><label class="toggle"><input type="checkbox" id="tabMessagesVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Health</label><label class="toggle"><input type="checkbox" id="tabHealthVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Rules</label><label class="toggle"><input type="checkbox" id="tabRulesVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Media Library</label><label class="toggle"><input type="checkbox" id="tabGalleryVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Templates</label><label class="toggle"><input type="checkbox" id="tabTemplatesVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>History</label><label class="toggle"><input type="checkbox" id="tabHistoryVisible" checked /><span class="slider"></span></label></div>
+              <div class="setting-row"><label>Innerworld</label><label class="toggle"><input type="checkbox" id="tabInnerworldVisible" checked /><span class="slider"></span></label></div>
+            </div>
+
             <!-- Privacy & Safety -->
             <div class="settings-group">
               <h3>Privacy &amp; Safety</h3>
@@ -824,7 +819,7 @@
             <!-- Data -->
             <div class="settings-group">
               <h3>Data</h3>
-              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">Export or reset all hub data. This data lives in memory and is not persisted between page reloads.</p>
+              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">Your hub data now saves locally in this browser automatically. You can also export or reset it here.</p>
               <div style="display:flex;gap:.75rem;flex-wrap:wrap">
                 <button class="btn-primary" id="exportDataBtn">Export All Data (JSON)</button>
                 <button class="btn-danger" id="clearDataBtn">Clear All Local Data</button>
@@ -962,6 +957,28 @@
         </div>
       </section>
 
+      <section class="module-page" id="page-accountFriends">
+        <div class="page-header"><h1>Friends</h1></div>
+        <div class="page-body">
+          <div class="settings-sections">
+            <div class="settings-group">
+              <h3>Account Friends &amp; Trust</h3>
+              <p class="headmate-hint" id="accountFriendsSummary">Use usernames to connect actual accounts and set their trust with the same privacy labels.</p>
+              <div class="setting-row"><label>Friend Username</label><input type="text" class="setting-input" id="friendUsernameInput" placeholder="username" autocomplete="off" /></div>
+              <div class="setting-row"><label>Trust Level</label><select class="setting-input" id="friendTrustLevelInput"><option value="friends">Friends</option><option value="trusted">Trusted</option><option value="partners">Partners</option><option value="private">Private</option></select></div>
+              <p class="account-error" id="friendError" hidden></p>
+              <button class="btn-primary" id="addAccountFriendBtn" type="button" style="margin-top:1rem">Add or Update Friend</button>
+              <div class="account-friends-list" id="accountFriendsList"></div>
+            </div>
+            <div class="settings-group">
+              <h3>Other Accounts</h3>
+              <p class="headmate-hint">View other known accounts here and quickly prefill them for friend requests.</p>
+              <div class="account-friends-list account-directory-grid" id="accountDirectoryList"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="module-page" id="page-profile">
         <div class="page-header"><h1>Member Profile</h1></div>
         <div class="page-body">
@@ -1013,13 +1030,9 @@
             <div class="headmate-profile-grid account-extra-grid" id="accountCustomFieldsDisplay"></div>
             <div class="settings-sections">
               <div class="settings-group">
-                <h3>Account Friends & Trust</h3>
-                <p class="headmate-hint" id="accountFriendsSummary">Use usernames to connect actual accounts and set their trust with the same privacy labels.</p>
-                <div class="setting-row"><label>Friend Username</label><input type="text" class="setting-input" id="friendUsernameInput" placeholder="username" autocomplete="off" /></div>
-                <div class="setting-row"><label>Trust Level</label><select class="setting-input" id="friendTrustLevelInput"><option value="friends">Friends</option><option value="trusted">Trusted</option><option value="partners">Partners</option><option value="private">Private</option></select></div>
-                <p class="account-error" id="friendError" hidden></p>
-                <button class="btn-primary" id="addAccountFriendBtn" type="button" style="margin-top:1rem">Add or Update Friend</button>
-                <div class="account-friends-list" id="accountFriendsList"></div>
+                <h3>Account Friends</h3>
+                <p class="headmate-hint">Manage actual account-to-account friendships in the dedicated Friends tab.</p>
+                <button class="btn-primary" id="openAccountFriendsTabBtn" type="button" style="margin-top:.5rem">Open Friends Tab</button>
               </div>
               <div class="settings-group">
                 <h3>Edit Profile</h3>

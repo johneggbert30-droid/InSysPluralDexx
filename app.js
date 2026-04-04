@@ -4,6 +4,7 @@
 const navItems = document.querySelectorAll('.nav-item');
 const pages = document.querySelectorAll('.module-page');
 const quickBtns = document.querySelectorAll('.quick-btn');
+const mainContent = document.getElementById('mainContent');
 const globalSearchInput = document.querySelector('.search-bar input');
 const dashboardActiveMembersStat = document.getElementById('dashboardActiveMembersStat');
 const dashboardHeadmatesStat = document.getElementById('dashboardHeadmatesStat');
@@ -478,7 +479,8 @@ function renderDashboard() {
     const chatCount = typeof chatMessagesByUser === 'object' ? Object.values(chatMessagesByUser[user] || {}).filter((thread) => Array.isArray(thread) && thread.length).length : 0;
 
     if (dashboardHeroTitle) {
-      const welcomeName = (typeof accounts === 'object' && loggedInAccountKey && accounts[loggedInAccountKey]?.name) || user || 'friend';
+      const systemLabel = user === NO_SYSTEM_USER ? '' : user;
+      const welcomeName = (typeof accounts === 'object' && loggedInAccountKey && accounts[loggedInAccountKey]?.name) || systemLabel || 'friend';
       dashboardHeroTitle.textContent = `Welcome back, ${welcomeName}`;
     }
     if (dashboardHeroSubtitle) {
@@ -530,13 +532,20 @@ function navigateTo(module) {
     module = 'profile';
   }
 
+  if (module !== 'profile' && module !== 'settings' && typeof isModuleEnabled === 'function' && !isModuleEnabled(module)) {
+    safeAlert('That tab is currently turned off in settings.');
+    module = typeof getFirstVisibleModule === 'function' ? getFirstVisibleModule('dashboard') : 'dashboard';
+  }
+
   if (module !== 'profile' && typeof canAccessModule === 'function' && !canAccessModule(module)) {
     safeAlert(`That section is hidden for your current trust level.`);
-    module = 'dashboard';
+    module = typeof getFirstVisibleModule === 'function' ? getFirstVisibleModule('dashboard') : 'dashboard';
   }
 
   navItems.forEach(i => i.classList.toggle('active', i.dataset.module === module));
   pages.forEach(p => p.classList.toggle('active', p.id === `page-${module}`));
+  if (mainContent) mainContent.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   renderDashboard();
 }
 
@@ -725,55 +734,12 @@ const cancelSystemEditorBtn = document.getElementById('cancelSystemEditorBtn');
 const systemEditTrustLevel = document.getElementById('systemEditTrustLevel');
 let editingSystemUser = null;
 let creatingSystemProfile = false;
+const NO_SYSTEM_USER = 'No system';
 
-const systemProfiles = {
-  Alice: {
-    name: 'Alice',
-    nickname: 'Ali',
-    description: 'Coordinates settings and keeps the hub organized.',
-    tags: 'admin, organizer',
-    customFields: 'Comfort item: Lavender tea',
-    color: '#6c63ff',
-    banner: 'Aurora Admin',
-    profilePhoto: 'A',
-    trustLevel: 'private'
-  },
-  Bob: {
-    name: 'Bob',
-    nickname: 'B',
-    description: 'Moderation focused and helps keep communication clear.',
-    tags: 'moderation, clarity',
-    customFields: 'Strength: De-escalation',
-    color: '#ff6584',
-    banner: 'Guardian Watch',
-    profilePhoto: 'B',
-    trustLevel: 'partners'
-  },
-  Carol: {
-    name: 'Carol',
-    nickname: 'Caz',
-    description: 'Primary support contact for check-ins and follow-up.',
-    tags: 'support, check-ins',
-    customFields: 'Availability: Evenings',
-    color: '#43d9ad',
-    banner: 'Calm Harbor',
-    profilePhoto: 'C',
-    trustLevel: 'trusted'
-  },
-  Dan: {
-    name: 'Dan',
-    nickname: 'D',
-    description: 'Reviews trends and summarizes system activity.',
-    tags: 'analysis, summaries',
-    customFields: 'Focus: Pattern spotting',
-    color: '#f5a623',
-    banner: 'Signal Board',
-    profilePhoto: 'D',
-    trustLevel: 'friends'
-  }
-};
+const systemProfiles = {};
 
 function ensureSystemProfile(userName, initial, color) {
+  if (!userName || userName === NO_SYSTEM_USER) return;
   if (!systemProfiles[userName]) {
     systemProfiles[userName] = {
       name: userName,
@@ -787,6 +753,50 @@ function ensureSystemProfile(userName, initial, color) {
       trustLevel: 'private'
     };
   }
+}
+
+function setNoSystemSelected() {
+  applyPhotoStyle(currentAvatar, '', '?', '#888');
+  if (currentUsername) currentUsername.textContent = NO_SYSTEM_USER;
+  if (systemActiveAvatar) applyPhotoStyle(systemActiveAvatar, '', '?', '#888');
+  if (systemActiveName) systemActiveName.textContent = NO_SYSTEM_USER;
+}
+
+function migrateUserScopedData(fromUser, toUser) {
+  const source = String(fromUser || '').trim();
+  const target = String(toUser || '').trim();
+  if (!source || !target || source === target) return;
+
+  const stores = [
+    typeof headmateProfilesByUser !== 'undefined' ? headmateProfilesByUser : null,
+    typeof headmateFoldersByUser !== 'undefined' ? headmateFoldersByUser : null,
+    typeof subsystemsByUser !== 'undefined' ? subsystemsByUser : null,
+    typeof chatMessagesByUser !== 'undefined' ? chatMessagesByUser : null,
+    typeof medicationsByUser !== 'undefined' ? medicationsByUser : null,
+    typeof medicationCheckinsByUser !== 'undefined' ? medicationCheckinsByUser : null,
+    typeof journalEntriesByUser !== 'undefined' ? journalEntriesByUser : null,
+    typeof journalShortcutsByUser !== 'undefined' ? journalShortcutsByUser : null
+  ].filter(Boolean);
+
+  stores.forEach((store) => {
+    if (!(source in store)) return;
+    if (!(target in store)) {
+      store[target] = store[source];
+      delete store[source];
+      return;
+    }
+
+    if (Array.isArray(store[source]) && Array.isArray(store[target])) {
+      store[target] = [...store[source], ...store[target]];
+      delete store[source];
+      return;
+    }
+
+    if (typeof store[source] === 'object' && typeof store[target] === 'object') {
+      store[target] = { ...store[source], ...store[target] };
+      delete store[source];
+    }
+  });
 }
 
 function applyUserSelection(user, initial, color, activeOption) {
@@ -853,11 +863,60 @@ function createUserOption(name, initial, color) {
   return option;
 }
 
+function rebuildUserDropdownOptions(preferredUser = '') {
+  if (!userDropdown) return;
+
+  userDropdown.querySelectorAll('.user-option[data-user]').forEach((option) => option.remove());
+  const addBtn = document.getElementById('addUserBtn');
+  const separator = userDropdown.querySelector('hr');
+
+  Object.entries(systemProfiles).forEach(([userName, profile]) => {
+    const displayName = String(profile?.name || userName).trim() || userName;
+    const initial = (profile?.profilePhoto || displayName[0] || '?').trim()[0]?.toUpperCase() || '?';
+    const color = profile?.color || '#6c63ff';
+    const option = createUserOption(userName, initial, color);
+    userDropdown.insertBefore(option, separator || addBtn || null);
+  });
+
+  const savedName = String(preferredUser || '').trim();
+  const nextOption = Array.from(userDropdown.querySelectorAll('.user-option[data-user]')).find((option) => option.dataset.user === savedName)
+    || userDropdown.querySelector('.user-option[data-user]');
+
+  if (!nextOption) {
+    setNoSystemSelected();
+    return;
+  }
+
+  document.querySelectorAll('.user-option[data-user]').forEach((option) => {
+    option.classList.toggle('active', option === nextOption);
+  });
+
+  const nextUser = nextOption.dataset.user;
+  const nextInitial = nextOption.dataset.initial || nextUser[0]?.toUpperCase() || '?';
+  const nextColor = nextOption.dataset.color || systemProfiles[nextUser]?.color || '#6c63ff';
+  const nextPhoto = systemProfiles[nextUser]?.profilePhoto || nextInitial;
+  applyPhotoStyle(currentAvatar, nextPhoto, nextInitial, nextColor);
+  if (currentUsername) currentUsername.textContent = nextUser;
+  if (systemActiveAvatar) applyPhotoStyle(systemActiveAvatar, nextPhoto, nextInitial, nextColor);
+  if (systemActiveName) systemActiveName.textContent = nextUser;
+}
+
 function renderSystemProfiles() {
   if (!systemProfilesGrid) return;
 
-  const userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
+  let userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
   const activeUser = currentUsername?.textContent?.trim();
+
+  if (!userOptions.length && Object.keys(systemProfiles).length) {
+    rebuildUserDropdownOptions(activeUser && activeUser !== NO_SYSTEM_USER ? activeUser : Object.keys(systemProfiles)[0]);
+    userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
+  }
+
+  if (!userOptions.length) {
+    systemProfilesGrid.innerHTML = '<p class="headmate-hint" style="margin:0">No systems yet. Create one to start organizing headmates, locations, and other profiles.</p>';
+    setNoSystemSelected();
+    return;
+  }
 
   const cardsHtml = userOptions.map((opt) => {
     const user = opt.dataset.user;
@@ -937,14 +996,17 @@ document.getElementById('addUserBtn').addEventListener('click', (e) => {
   const initial = trimmed[0].toUpperCase();
   const colors = ['#6c63ff','#ff6584','#43d9ad','#f5a623','#a29bfe','#fd79a8','#0984e3','#e17055'];
   const color = colors[Math.floor(Math.random() * colors.length)];
+  const shouldMigrateUnassigned = (currentUsername?.textContent || '').trim() === NO_SYSTEM_USER;
 
   const opt = createUserOption(trimmed, initial, color);
   ensureSystemProfile(trimmed, initial, color);
+  if (shouldMigrateUnassigned) migrateUserScopedData(NO_SYSTEM_USER, trimmed);
 
   const addBtn = document.getElementById('addUserBtn');
   userDropdown.insertBefore(opt, addBtn.previousElementSibling.nextSibling);
   userDropdown.classList.remove('open');
   renderSystemProfiles();
+  applyUserSelection(trimmed, initial, color, opt);
 });
 
 if (systemProfilesGrid) {
@@ -999,7 +1061,7 @@ if (systemProfilesGrid) {
       if (!safeConfirm(`Delete profile for ${user}?`)) return;
 
       delete systemProfiles[user];
-      delete headmateProfilesByUser[user];
+      migrateUserScopedData(user, NO_SYSTEM_USER);
       Object.values(partnerProfiles).forEach((partner) => {
         if (normalizeLookupName(partner.linkedSystemUser) === normalizeLookupName(user)) {
           partner.linkedSystemUser = 'Not set';
@@ -1009,13 +1071,9 @@ if (systemProfilesGrid) {
 
       const remainingOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
       if (!remainingOptions.length) {
-        applyPhotoStyle(currentAvatar, '', '?', '#888');
-        currentUsername.textContent = 'No user';
-        if (systemActiveAvatar) {
-          applyPhotoStyle(systemActiveAvatar, '', '?', '#888');
-        }
-        if (systemActiveName) systemActiveName.textContent = 'No user';
+        setNoSystemSelected();
         renderSystemProfiles();
+        if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
         return;
       }
 
@@ -1041,7 +1099,7 @@ if (addSystemProfileBtn) {
     const defaultName = `Profile ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
     systemEditName.value = defaultName;
     systemEditNickname.value = defaultName[0].toUpperCase();
-    systemEditDescription.value = 'New user profile';
+    systemEditDescription.value = 'No description set.';
     if (systemEditTags) systemEditTags.value = 'Not set';
     if (systemEditCustomFields) systemEditCustomFields.value = 'Not set';
     systemEditColor.value = '#6c63ff';
@@ -1064,7 +1122,7 @@ if (addSystemFromTemplateBtn) {
     const templatedName = (template.name || '').trim() || fallbackName;
     systemEditName.value = templatedName;
     systemEditNickname.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
-    systemEditDescription.value = template.description || 'New user profile';
+    systemEditDescription.value = template.description || 'No description set.';
     if (systemEditTags) systemEditTags.value = template.category || 'Not set';
     if (systemEditCustomFields) systemEditCustomFields.value = template.defaultContent || 'Not set';
     systemEditColor.value = template.color || '#6c63ff';
@@ -1117,16 +1175,17 @@ if (saveSystemEditorBtn) {
     const previousName = editingSystemUser;
     if (previousName && previousName !== newName) {
       delete systemProfiles[previousName];
-      if (headmateProfilesByUser[previousName]) {
-        headmateProfilesByUser[newName] = headmateProfilesByUser[previousName];
-        delete headmateProfilesByUser[previousName];
-      }
+      migrateUserScopedData(previousName, newName);
       Object.values(partnerProfiles).forEach((partner) => {
         if (normalizeLookupName(partner.linkedSystemUser) === normalizeLookupName(previousName)) {
           partner.linkedSystemUser = newName;
           partner.linkedProfiles = String(partner.linkedProfiles || 'Not set').replaceAll(`System: ${previousName}`, `System: ${newName}`);
         }
       });
+    }
+
+    if (!previousName && (currentUsername?.textContent || '').trim() === NO_SYSTEM_USER) {
+      migrateUserScopedData(NO_SYSTEM_USER, newName);
     }
 
     systemProfiles[newName] = draft;
@@ -1479,32 +1538,7 @@ const partnerFieldSchema = [
   { key: 'color', label: 'Color' }
 ];
 
-const partnerProfiles = {
-  alex: {
-    name: 'Alex',
-    connections: 'Rowan, Sky',
-    linkedAlters: 'Alex, Sky',
-    partnerHeadmates: 'Jun (Host), Mira (Protector)',
-    linkedProfiles: 'Headmate: Alex, Location: Front Room',
-    description: 'Central planner and emotional anchor.',
-    relationshipType: 'Nesting',
-    profilePhoto: 'A',
-    banner: 'Shared Orbit',
-    color: '#6c63ff'
-  },
-  rowan: {
-    name: 'Rowan',
-    connections: 'Alex',
-    linkedAlters: 'Rowan',
-    partnerHeadmates: 'Ember (Support)',
-    linkedProfiles: 'Headmate: Rowan, Subsystem: Shield Unit',
-    description: 'Stability-focused with strong boundary skills.',
-    relationshipType: 'Anchor',
-    profilePhoto: 'R',
-    banner: 'Steady Flame',
-    color: '#ff6584'
-  }
-};
+const partnerProfiles = {};
 
 let selectedPartnerKey = null;
 let creatingPartner = false;
@@ -1744,23 +1778,29 @@ function renderPartnersDiagram() {
   }
 
   const width = Math.max(680, partnersDiagramCanvas.clientWidth || 680);
-  const height = 380;
+  const height = 400;
   const centerX = width / 2;
   const centerY = height / 2;
-  const radius = Math.max(110, Math.min(width, height) * 0.32);
+  const radius = Math.max(118, Math.min(width, height) * 0.32);
+  const activeSystem = systemProfiles[getActiveUserName()] || {};
+  const palette = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#0984e3', '#e17055', '#a29bfe', '#00b894'];
   const selfNode = {
     key: '__self__',
-    name: 'Self',
+    name: activeSystem.name || 'You',
+    type: 'Center',
+    color: normalizeHexColor(activeSystem.color || '#6c63ff', '#6c63ff'),
     x: centerX,
     y: centerY
   };
 
   const nodes = entries.map(([key, profile], index) => {
     const angle = (Math.PI * 2 * index) / entries.length - Math.PI / 2;
+    const fallbackColor = palette[index % palette.length];
     return {
       key,
       name: profile.name,
       type: profile.relationshipType || 'Unspecified',
+      color: normalizeHexColor(profile.color || fallbackColor, fallbackColor),
       x: centerX + Math.cos(angle) * radius,
       y: centerY + Math.sin(angle) * radius
     };
@@ -1770,12 +1810,12 @@ function renderPartnersDiagram() {
   const edges = [];
   const edgeSeen = new Set();
 
-  // Always connect each partner to the central self node.
   nodes.forEach((node) => {
     edges.push({
       from: selfNode,
       to: node,
-      label: node.type || 'Partner'
+      label: node.type || 'Partner',
+      color: node.color
     });
   });
 
@@ -1788,16 +1828,25 @@ function renderPartnersDiagram() {
       const edgeKey = [from.key, to.key].sort().join('|');
       if (edgeSeen.has(edgeKey)) return;
       edgeSeen.add(edgeKey);
-      edges.push({ from, to, label: profile.relationshipType || 'Link' });
+      edges.push({
+        from,
+        to,
+        label: profile.relationshipType || to.type || 'Link',
+        color: from.color
+      });
     });
   });
 
   const edgeSvg = edges.map((edge) => {
     const mx = (edge.from.x + edge.to.x) / 2;
     const my = (edge.from.y + edge.to.y) / 2;
+    const labelWidth = Math.max(78, String(edge.label || '').length * 7.5 + 18);
     return `
-      <line class="partners-edge" x1="${edge.from.x}" y1="${edge.from.y}" x2="${edge.to.x}" y2="${edge.to.y}" />
-      <text class="partners-edge-label" x="${mx}" y="${my - 4}">${escapeHtml(edge.label)}</text>
+      <g>
+        <line class="partners-edge" x1="${edge.from.x}" y1="${edge.from.y}" x2="${edge.to.x}" y2="${edge.to.y}" style="stroke:${edge.color}" />
+        <rect class="partners-edge-label-bg" x="${mx - labelWidth / 2}" y="${my - 18}" width="${labelWidth}" height="18" rx="10" ry="10" style="stroke:${edge.color}" />
+        <text class="partners-edge-label" x="${mx}" y="${my - 5}">${escapeHtml(edge.label)}</text>
+      </g>
     `;
   }).join('');
 
@@ -1809,17 +1858,19 @@ function renderPartnersDiagram() {
       .join('') || 'P';
     return `
       <g data-diagram-partner="${node.key}">
-        <circle class="partners-node ${selectedPartnerKey === node.key ? 'selected' : ''}" cx="${node.x}" cy="${node.y}" r="28" />
+        <circle class="partners-node ${selectedPartnerKey === node.key ? 'selected' : ''}" cx="${node.x}" cy="${node.y}" r="29" style="fill: color-mix(in srgb, ${node.color} 24%, var(--surface) 76%); stroke:${node.color};" />
         <text class="partners-node-label" x="${node.x}" y="${node.y + 4}">${escapeHtml(initials)}</text>
-        <text class="partners-node-label" x="${node.x}" y="${node.y + 46}">${escapeHtml(node.name)}</text>
+        <text class="partners-node-label" x="${node.x}" y="${node.y + 50}">${escapeHtml(node.name)}</text>
+        <text class="partners-node-label partners-node-label--type" x="${node.x}" y="${node.y + 64}">${escapeHtml(node.type)}</text>
       </g>
     `;
   }).join('');
 
   const selfNodeSvg = `
     <g data-diagram-self="true">
-      <circle class="partners-node self" cx="${selfNode.x}" cy="${selfNode.y}" r="34" />
-      <text class="partners-node-label" x="${selfNode.x}" y="${selfNode.y + 4}">SELF</text>
+      <circle class="partners-node self" cx="${selfNode.x}" cy="${selfNode.y}" r="35" style="stroke:${selfNode.color}" />
+      <text class="partners-node-label" x="${selfNode.x}" y="${selfNode.y + 3}">YOU</text>
+      <text class="partners-node-label partners-node-label--type" x="${selfNode.x}" y="${selfNode.y + 50}">${escapeHtml(selfNode.name)}</text>
     </g>
   `;
 
@@ -2324,9 +2375,7 @@ const defaultHeadmateProfiles = {
   }
 };
 
-const headmateProfilesByUser = {
-  Alice: JSON.parse(JSON.stringify(defaultHeadmateProfiles))
-};
+const headmateProfilesByUser = {};
 const headmateFoldersByUser = {};
 const headmateProfilePanel = document.getElementById('headmateProfile');
 const headmateProfileGrid = document.getElementById('headmateProfileGrid');
@@ -2459,7 +2508,7 @@ function ensureHeadmateStoreForUser(userName) {
 }
 
 function getActiveUserName() {
-  return (currentUsername?.textContent || 'Alice').trim();
+  return (currentUsername?.textContent || NO_SYSTEM_USER).trim() || NO_SYSTEM_USER;
 }
 
 function getActiveHeadmateProfiles() {
@@ -2664,6 +2713,7 @@ function getModulePrivacyLevel(module) {
   switch (module) {
     case 'parts': return privacySettings?.headmatesVisible ? 'public' : 'private';
     case 'friends': return privacySettings?.partnersVisible ? 'public' : 'private';
+    case 'accountFriends': return 'private';
     case 'journal': return privacySettings?.journalVisible ? 'public' : 'private';
     case 'health': return privacySettings?.healthVisible ? 'public' : 'private';
     case 'calendar': return privacySettings?.historyVisible ? 'public' : 'private';
@@ -2673,6 +2723,7 @@ function getModulePrivacyLevel(module) {
 }
 
 function canAccessModule(module) {
+  if (typeof isModuleEnabled === 'function' && !isModuleEnabled(module)) return false;
   return canViewField(getModulePrivacyLevel(module), getViewerTrustLevel());
 }
 
@@ -3966,34 +4017,7 @@ const locationFieldSchema = [
   { key: 'color', label: 'Color' }
 ];
 
-const locationProfiles = {
-  'front-room': {
-    name: 'Front Room',
-    type: 'Common area',
-    description: 'Primary shared fronting space used for coordination and quick check-ins.',
-    tags: 'front, coordination',
-    customFields: 'Weather: Calm\nLighting: Soft purple glow',
-    associatedAlters: 'Alex, Rowan, Sky',
-    connectedLocations: 'Archive Hall, Garden Path',
-    sublocations: ['archive-hall'],
-    profilePhoto: 'F',
-    banner: 'Central Hub',
-    color: '#6c63ff'
-  },
-  'archive-hall': {
-    name: 'Archive Hall',
-    type: 'Memory archive',
-    description: 'A structured corridor with stored records, timelines, and internal references.',
-    tags: 'archive, memory',
-    customFields: 'Access level: Guided only',
-    associatedAlters: 'Alex',
-    connectedLocations: 'Front Room',
-    sublocations: [],
-    profilePhoto: 'A',
-    banner: 'Records Wing',
-    color: '#43d9ad'
-  }
-};
+const locationProfiles = {};
 
 let selectedLocationKey = null;
 let creatingLocation = false;
@@ -5302,26 +5326,7 @@ const templateFieldSchema = [
   { key: 'color', label: 'Color' }
 ];
 
-const customTemplates = {
-  report: {
-    name: 'Report Template',
-    target: 'all',
-    category: 'Reports',
-    description: 'Standard report layout with summary and action items.',
-    defaultContent: 'Summary:\nFindings:\nAction items:\nOwner:\nDue date:',
-    banner: 'Structured Report',
-    color: '#6c63ff'
-  },
-  journal: {
-    name: 'Journal Entry',
-    target: 'all',
-    category: 'Logging',
-    description: 'Daily journal entry with date, mood, and notes.',
-    defaultContent: 'Date:\nMood:\nContext:\nEntry:\nFollow-up:',
-    banner: 'Daily Reflection',
-    color: '#43d9ad'
-  }
-};
+const customTemplates = {};
 
 let selectedTemplateKey = null;
 let creatingTemplate = false;
@@ -5903,29 +5908,7 @@ const historySearchInput = document.getElementById('historySearchInput');
 const historyFilterSelect = document.getElementById('historyFilterSelect');
 const historySortSelect = document.getElementById('historySortSelect');
 
-const historyEvents = [
-  {
-    id: 'history-1',
-    title: 'Spring System Win',
-    date: '2026-03-31',
-    type: 'Win',
-    notes: 'Completed a major organization pass and stabilized multiple tracking modules.'
-  },
-  {
-    id: 'history-2',
-    title: 'Subsystem Anniversary',
-    date: '2026-02-12',
-    type: 'Anniversary',
-    notes: 'Marked the anniversary of a key subsystem becoming more active and collaborative.'
-  },
-  {
-    id: 'history-3',
-    title: 'Important Split Event',
-    date: '2025-11-04',
-    type: 'Split',
-    notes: 'Recorded a major structural change in the system timeline.'
-  }
-];
+const historyEvents = [];
 
 let editingHistoryEventId = null;
 let creatingHistoryEvent = false;
@@ -6143,9 +6126,21 @@ renderHistoryTimeline();
 const accounts = {};
 let loggedInAccountKey = null;
 let authToken = '';
+let remoteAccountDirectory = [];
+let remoteHubStateSaveTimer = null;
+let lastRemoteHubStateText = '';
 const ACCOUNT_STORAGE_KEY = 'ispd7.accounts.v1';
 const ACCOUNT_SESSION_KEY = 'ispd7.session.v1';
 const AUTH_TOKEN_KEY = 'ispd7.auth.token.v1';
+const HUB_STATE_STORAGE_KEY = 'ispd7.hub.state.v1';
+
+function cloneJsonData(value, fallback = {}) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? fallback));
+  } catch (_err) {
+    return Array.isArray(fallback) ? [...fallback] : { ...fallback };
+  }
+}
 
 function setAuthToken(token = '') {
   authToken = String(token || '').trim();
@@ -6171,7 +6166,10 @@ function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
     color: account.color || '#6c63ff',
     friends: account.friends && typeof account.friends === 'object' ? { ...account.friends } : {},
     friendProfiles: Array.isArray(account.friendProfiles) ? account.friendProfiles.map((entry) => ({ ...entry })) : [],
-    createdAt: account.createdAt || new Date().toISOString()
+    hubState: account.hubState && typeof account.hubState === 'object' ? cloneJsonData(account.hubState, {}) : {},
+    viewerTrustLevel: normalizeAccountTrustLevel(account.viewerTrustLevel, 'private'),
+    createdAt: account.createdAt || new Date().toISOString(),
+    updatedAt: account.updatedAt || account.createdAt || new Date().toISOString()
   };
 }
 
@@ -6299,10 +6297,12 @@ const accountTagsDisplay = document.getElementById('accountTagsDisplay');
 const accountCustomFieldsDisplay = document.getElementById('accountCustomFieldsDisplay');
 const accountFriendsSummary = document.getElementById('accountFriendsSummary');
 const accountFriendsList = document.getElementById('accountFriendsList');
+const accountDirectoryList = document.getElementById('accountDirectoryList');
 const friendUsernameInput = document.getElementById('friendUsernameInput');
 const friendTrustLevelInput = document.getElementById('friendTrustLevelInput');
 const friendError = document.getElementById('friendError');
 const addAccountFriendBtn = document.getElementById('addAccountFriendBtn');
+const openAccountFriendsTabBtn = document.getElementById('openAccountFriendsTabBtn');
 const editAccountNameInput = document.getElementById('editAccountNameInput');
 const editAccountUsernameInput = document.getElementById('editAccountUsernameInput');
 const editAccountDescriptionInput = document.getElementById('editAccountDescriptionInput');
@@ -6358,36 +6358,107 @@ function getAccountFriendEntries(account = getCurrentAccountRecord()) {
   }));
 }
 
+async function refreshAccountDirectoryFromBackend() {
+  if (!USE_BACKEND_AUTH || !authToken) {
+    remoteAccountDirectory = [];
+    return;
+  }
+
+  try {
+    const result = await apiRequest('/api/accounts');
+    remoteAccountDirectory = Array.isArray(result.accounts)
+      ? result.accounts.map((entry) => ({
+          username: String(entry.username || '').trim().toLowerCase(),
+          name: String(entry.name || entry.username || 'Unknown account').trim(),
+          description: String(entry.description || 'No description set.'),
+          tags: String(entry.tags || 'Not set'),
+          profilePhoto: entry.profilePhoto || String(entry.name || entry.username || '?').trim()[0]?.toUpperCase() || '?',
+          color: entry.color || '#6c63ff',
+          trustLevel: normalizeAccountTrustLevel(entry.trustLevel, ''),
+          theirTrustLevel: normalizeAccountTrustLevel(entry.theirTrustLevel, ''),
+          createdAt: entry.createdAt || '',
+          updatedAt: entry.updatedAt || ''
+        }))
+      : [];
+  } catch (_err) {
+    remoteAccountDirectory = [];
+  }
+}
+
 function renderAccountFriendSection(account = getCurrentAccountRecord()) {
   if (!accountFriendsList || !accountFriendsSummary) return;
+
+  if (!account) {
+    accountFriendsSummary.textContent = 'Sign in to manage your account friends.';
+    accountFriendsList.innerHTML = '<p class="headmate-hint" style="margin:0">Sign in to add, edit, or remove friends.</p>';
+    if (accountDirectoryList) {
+      accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">Sign in to view other known accounts.</p>';
+    }
+    return;
+  }
 
   const entries = getAccountFriendEntries(account);
   if (!entries.length) {
     accountFriendsSummary.textContent = 'No account friends linked yet. Add a username and choose the trust label you want them to have.';
     accountFriendsList.innerHTML = '<p class="headmate-hint" style="margin:0">No friend connections saved yet.</p>';
+  } else {
+    accountFriendsSummary.textContent = `${entries.length} account friend${entries.length === 1 ? '' : 's'} linked. Trust labels use the same privacy scale as the rest of the app.`;
+
+    accountFriendsList.innerHTML = entries.map((entry) => {
+      const selectedOptions = PRIVACY_LEVELS.filter((level) => level !== 'public')
+        .map((level) => `<option value="${level}"${entry.trustLevel === level ? ' selected' : ''}>${level.charAt(0).toUpperCase() + level.slice(1)}</option>`)
+        .join('');
+      return `
+        <article class="account-friend-card">
+          <div class="account-friend-main">
+            ${renderAvatarMarkup(entry.profilePhoto, entry.name[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
+            <div class="account-friend-meta">
+              <strong>${escapeHtml(entry.name)}</strong>
+              <span>@${escapeHtml(entry.username)}</span>
+              <span>Your trust: ${escapeHtml(entry.trustLevel)}</span>
+              ${entry.theirTrustLevel ? `<span>They set you as: ${escapeHtml(entry.theirTrustLevel)}</span>` : ''}
+            </div>
+          </div>
+          <div class="account-friend-actions">
+            <select class="setting-input" data-account-friend-trust="${escapeHtml(entry.username)}">${selectedOptions}</select>
+            <button class="btn-sm" type="button" data-remove-account-friend="${escapeHtml(entry.username)}">Remove</button>
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  if (!accountDirectoryList) return;
+
+  const knownAccounts = (USE_BACKEND_AUTH && remoteAccountDirectory.length ? remoteAccountDirectory : Object.values(accounts))
+    .filter((entry) => entry && typeof entry === 'object')
+    .filter((entry) => normalizeLookupName(entry.username) && normalizeLookupName(entry.username) !== normalizeLookupName(account.username))
+    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  if (!knownAccounts.length) {
+    accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">No other saved accounts found yet. Create or sign into another account to see it here.</p>';
     return;
   }
 
-  accountFriendsSummary.textContent = `${entries.length} account friend${entries.length === 1 ? '' : 's'} linked. Trust labels use the same privacy scale as the rest of the app.`;
-
-  accountFriendsList.innerHTML = entries.map((entry) => {
-    const selectedOptions = PRIVACY_LEVELS.filter((level) => level !== 'public')
-      .map((level) => `<option value="${level}"${entry.trustLevel === level ? ' selected' : ''}>${level.charAt(0).toUpperCase() + level.slice(1)}</option>`)
-      .join('');
+  accountDirectoryList.innerHTML = knownAccounts.map((entry) => {
+    const username = String(entry.username || '').trim().toLowerCase();
+    const displayName = String(entry.name || entry.username || 'Unknown account').trim();
+    const trustLevel = normalizeAccountTrustLevel(account.friends?.[username] || entry.trustLevel, '');
+    const theirTrustLevel = normalizeAccountTrustLevel(entry.theirTrustLevel || entry.friends?.[account.username], '');
     return `
-      <article class="account-friend-card">
+      <article class="account-friend-card account-directory-card">
         <div class="account-friend-main">
-          ${renderAvatarMarkup(entry.profilePhoto, entry.name[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
+          ${renderAvatarMarkup(entry.profilePhoto || displayName[0]?.toUpperCase() || '?', displayName[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
           <div class="account-friend-meta">
-            <strong>${escapeHtml(entry.name)}</strong>
-            <span>@${escapeHtml(entry.username)}</span>
-            <span>Your trust: ${escapeHtml(entry.trustLevel)}</span>
-            ${entry.theirTrustLevel ? `<span>They set you as: ${escapeHtml(entry.theirTrustLevel)}</span>` : ''}
+            <strong>${escapeHtml(displayName)}</strong>
+            <span>@${escapeHtml(username)}</span>
+            <span>${escapeHtml(truncatePreview(entry.description || 'No description set.', 92))}</span>
+            ${trustLevel ? `<span>Your trust: ${escapeHtml(trustLevel)}</span>` : '<span>Not in your friends list yet.</span>'}
+            ${theirTrustLevel ? `<span>They set you as: ${escapeHtml(theirTrustLevel)}</span>` : ''}
           </div>
         </div>
         <div class="account-friend-actions">
-          <select class="setting-input" data-account-friend-trust="${escapeHtml(entry.username)}">${selectedOptions}</select>
-          <button class="btn-sm" type="button" data-remove-account-friend="${escapeHtml(entry.username)}">Remove</button>
+          <button class="btn-sm" type="button" data-prefill-account-friend="${escapeHtml(username)}" data-prefill-account-trust="${escapeHtml(trustLevel || 'friends')}">${trustLevel ? 'Edit Friend' : 'Add Friend'}</button>
         </div>
       </article>
     `;
@@ -6422,6 +6493,7 @@ async function saveAccountFriendLink(targetUsername = '', trustLevel = 'friends'
       accounts[savedAccount.username] = savedAccount;
       loggedInAccountKey = savedAccount.username;
       persistAccountState();
+      await refreshAccountDirectoryFromBackend();
       showAccountError(friendError, '');
       if (clearForm && friendUsernameInput) friendUsernameInput.value = '';
       if (clearForm && friendTrustLevelInput) friendTrustLevelInput.value = 'friends';
@@ -6469,6 +6541,7 @@ async function removeAccountFriendLink(targetUsername = '') {
       accounts[savedAccount.username] = savedAccount;
       loggedInAccountKey = savedAccount.username;
       persistAccountState();
+      await refreshAccountDirectoryFromBackend();
       showAccountError(friendError, '');
       renderAccountModule();
       safeAlert(`Removed @${cleanUsername} from your friends.`);
@@ -6576,7 +6649,12 @@ if (loginSubmitBtn) {
         accounts[account.username] = account;
         loggedInAccountKey = account.username;
         setAuthToken(result.token || '');
+        if (account.hubState && typeof applyHubStateSnapshot === 'function') {
+          applyHubStateSnapshot(account.hubState, { persistLocal: true });
+          lastRemoteHubStateText = JSON.stringify(account.hubState || {});
+        }
         persistAccountState();
+        await refreshAccountDirectoryFromBackend();
         renderAccountModule();
         navigateTo('dashboard');
       } catch (err) {
@@ -6621,7 +6699,12 @@ if (signupSubmitBtn) {
         accounts[account.username] = account;
         loggedInAccountKey = account.username;
         setAuthToken(result.token || '');
+        if (account.hubState && typeof applyHubStateSnapshot === 'function') {
+          applyHubStateSnapshot(account.hubState, { persistLocal: true });
+          lastRemoteHubStateText = JSON.stringify(account.hubState || {});
+        }
         persistAccountState();
+        await refreshAccountDirectoryFromBackend();
         renderAccountModule();
         navigateTo('dashboard');
       } catch (err) {
@@ -6677,6 +6760,26 @@ if (accountFriendsList) {
     const trustSelect = event.target.closest('[data-account-friend-trust]');
     if (!trustSelect) return;
     saveAccountFriendLink(trustSelect.dataset.accountFriendTrust || '', trustSelect.value, { silent: true });
+  });
+}
+
+if (accountDirectoryList) {
+  accountDirectoryList.addEventListener('click', (event) => {
+    const prefillBtn = event.target.closest('[data-prefill-account-friend]');
+    if (!prefillBtn) return;
+    if (friendUsernameInput) {
+      friendUsernameInput.value = prefillBtn.dataset.prefillAccountFriend || '';
+      friendUsernameInput.focus();
+    }
+    if (friendTrustLevelInput) {
+      friendTrustLevelInput.value = prefillBtn.dataset.prefillAccountTrust || 'friends';
+    }
+  });
+}
+
+if (openAccountFriendsTabBtn) {
+  openAccountFriendsTabBtn.addEventListener('click', () => {
+    navigateTo('accountFriends');
   });
 }
 
@@ -6745,6 +6848,11 @@ if (saveAccountBtn) {
         accounts[savedAccount.username] = savedAccount;
         loggedInAccountKey = savedAccount.username;
         if (result.token) setAuthToken(result.token);
+        if (savedAccount.hubState && typeof applyHubStateSnapshot === 'function') {
+          applyHubStateSnapshot(savedAccount.hubState, { persistLocal: true });
+          lastRemoteHubStateText = JSON.stringify(savedAccount.hubState || {});
+        }
+        await refreshAccountDirectoryFromBackend();
         showAccountError(editError, '');
         persistAccountState();
         renderAccountModule();
@@ -7150,6 +7258,7 @@ if (saveHubInfoBtn) {
     hubSettings.description = (hubDescInput?.value || '').trim();
     hubSettings.icon        = (hubIconInput?.value || '').trim();
     applyHubInfo();
+    if (typeof persistHubState === 'function') persistHubState();
     safeAlert('Hub info saved.');
   });
 }
@@ -7165,12 +7274,96 @@ if (saveTerminologyBtn) {
     if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
     if (typeof renderPartnersTable === 'function') renderPartnersTable();
     if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
+    if (typeof persistHubState === 'function') persistHubState();
     safeAlert('Terminology updated.');
   });
 }
 
 // Pre-fill hub info fields from current state
 if (hubNameInput) hubNameInput.value = hubSettings.name;
+
+const MODULE_VISIBILITY_DEFAULTS = {
+  dashboard: true,
+  parts: true,
+  system: true,
+  friends: true,
+  accountFriends: true,
+  partners: true,
+  items: true,
+  tags: true,
+  journal: true,
+  chat: true,
+  messages: true,
+  health: true,
+  switchboard: true,
+  gallery: true,
+  templates: true,
+  calendar: true,
+  notifications: true
+};
+
+const moduleVisibilitySettings = { ...MODULE_VISIBILITY_DEFAULTS };
+const moduleVisibilityToggleIds = [
+  ['tabDashboardVisible', 'dashboard'],
+  ['tabPartsVisible', 'parts'],
+  ['tabSystemVisible', 'system'],
+  ['tabPartnersVisible', 'friends'],
+  ['tabAccountFriendsVisible', 'accountFriends'],
+  ['tabSubsystemsVisible', 'partners'],
+  ['tabItemsVisible', 'items'],
+  ['tabTagsVisible', 'tags'],
+  ['tabJournalVisible', 'journal'],
+  ['tabChatVisible', 'chat'],
+  ['tabMessagesVisible', 'messages'],
+  ['tabHealthVisible', 'health'],
+  ['tabRulesVisible', 'switchboard'],
+  ['tabGalleryVisible', 'gallery'],
+  ['tabTemplatesVisible', 'templates'],
+  ['tabHistoryVisible', 'calendar'],
+  ['tabInnerworldVisible', 'notifications']
+];
+
+function isModuleEnabled(module) {
+  if (!module || module === 'profile' || module === 'settings') return true;
+  return moduleVisibilitySettings[module] !== false;
+}
+
+function getFirstVisibleModule(preferred = 'dashboard') {
+  if (isModuleEnabled(preferred)) return preferred;
+  const nextItem = Array.from(navItems).find((item) => {
+    const module = item.dataset.module;
+    return module && module !== 'profile' && module !== 'settings' && isModuleEnabled(module);
+  });
+  return nextItem?.dataset.module || 'profile';
+}
+
+function applyModuleVisibilitySettings() {
+  navItems.forEach((item) => {
+    const module = item.dataset.module;
+    item.hidden = !isModuleEnabled(module);
+  });
+
+  quickBtns.forEach((btn) => {
+    const module = btn.dataset.module;
+    btn.hidden = !isModuleEnabled(module);
+  });
+
+  const activeModule = document.querySelector('.nav-item.active')?.dataset.module;
+  if (activeModule && !isModuleEnabled(activeModule)) {
+    navigateTo(getFirstVisibleModule('dashboard'));
+  }
+}
+
+moduleVisibilityToggleIds.forEach(([id, key]) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.checked = moduleVisibilitySettings[key];
+  el.addEventListener('change', () => {
+    moduleVisibilitySettings[key] = el.checked;
+    applyModuleVisibilitySettings();
+    if (typeof persistHubState === 'function') persistHubState();
+  });
+});
 
 // --- Privacy & Safety ---
 const privacySettings = {
@@ -7201,7 +7394,11 @@ privacyToggleIds.forEach(([id, key]) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.checked = privacySettings[key];
-  el.addEventListener('change', () => { privacySettings[key] = el.checked; });
+  el.addEventListener('change', () => {
+    privacySettings[key] = el.checked;
+    if (typeof persistHubState === 'function') persistHubState();
+    renderDashboard();
+  });
 });
 
 // --- Notifications ---
@@ -7225,7 +7422,10 @@ notifToggleIds.forEach(([id, key]) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.checked = notificationSettings[key];
-  el.addEventListener('change', () => { notificationSettings[key] = el.checked; });
+  el.addEventListener('change', () => {
+    notificationSettings[key] = el.checked;
+    if (typeof persistHubState === 'function') persistHubState();
+  });
 });
 
 // --- Data Export & Clear ---
@@ -7240,13 +7440,24 @@ if (exportDataBtn) {
       privacySettings,
       notificationSettings,
       terminologySettings,
+      moduleVisibilitySettings,
       systemProfiles,
       headmateProfilesByUser,
+      headmateFoldersByUser,
+      chatMessagesByUser,
       partnerProfiles,
+      subsystemsByUser,
       itemProfiles,
       locationProfiles,
+      medicationsByUser,
+      medicationCheckinsByUser,
+      journalEntriesByUser,
+      journalShortcutsByUser,
       historyEvents,
       customTemplates,
+      selectedLightThemeKey,
+      selectedDarkThemeKey,
+      customThemeTokens,
       accounts: Object.fromEntries(
         Object.entries(accounts).map(([k, v]) => [k, { ...v, password: '[redacted]' }])
       )
@@ -7269,8 +7480,250 @@ if (clearDataBtn) {
   });
 }
 
+function replaceStoredObject(target, source = {}) {
+  Object.keys(target).forEach((key) => delete target[key]);
+  Object.entries(source && typeof source === 'object' ? source : {}).forEach(([key, value]) => {
+    target[key] = cloneJsonData(value, value);
+  });
+}
+
+function replaceStoredArray(target, source = []) {
+  target.splice(0, target.length, ...cloneJsonData(Array.isArray(source) ? source : [], []));
+}
+
+function buildHubStateSnapshot() {
+  return {
+    version: 1,
+    ownerAccountKey: loggedInAccountKey || '',
+    updatedAt: new Date().toISOString(),
+    hubSettings: cloneJsonData(hubSettings, {}),
+    privacySettings: cloneJsonData(privacySettings, {}),
+    notificationSettings: cloneJsonData(notificationSettings, {}),
+    terminologySettings: cloneJsonData(terminologySettings, {}),
+    moduleVisibilitySettings: cloneJsonData(moduleVisibilitySettings, {}),
+    systemProfiles: cloneJsonData(systemProfiles, {}),
+    headmateProfilesByUser: cloneJsonData(headmateProfilesByUser, {}),
+    headmateFoldersByUser: cloneJsonData(headmateFoldersByUser, {}),
+    chatMessagesByUser: cloneJsonData(chatMessagesByUser, {}),
+    partnerProfiles: cloneJsonData(partnerProfiles, {}),
+    subsystemsByUser: cloneJsonData(subsystemsByUser, {}),
+    itemProfiles: cloneJsonData(itemProfiles, {}),
+    locationProfiles: cloneJsonData(locationProfiles, {}),
+    medicationsByUser: cloneJsonData(medicationsByUser, {}),
+    medicationCheckinsByUser: cloneJsonData(medicationCheckinsByUser, {}),
+    journalEntriesByUser: cloneJsonData(journalEntriesByUser, {}),
+    journalShortcutsByUser: cloneJsonData(journalShortcutsByUser, {}),
+    historyEvents: cloneJsonData(historyEvents, []),
+    customTemplates: cloneJsonData(customTemplates, {}),
+    selectedLightThemeKey,
+    selectedDarkThemeKey,
+    customThemeTokens: cloneJsonData(customThemeTokens, {}),
+    activeUser: getActiveUserName()
+  };
+}
+
+function applyHubStateSnapshot(saved = {}, options = {}) {
+  if (!saved || typeof saved !== 'object') return false;
+
+  Object.assign(hubSettings, saved.hubSettings || {});
+  Object.assign(privacySettings, saved.privacySettings || {});
+  Object.assign(notificationSettings, saved.notificationSettings || {});
+  Object.assign(terminologySettings, saved.terminologySettings || {});
+  Object.assign(moduleVisibilitySettings, MODULE_VISIBILITY_DEFAULTS, saved.moduleVisibilitySettings || {});
+
+  if (saved.customThemeTokens?.light && typeof saved.customThemeTokens.light === 'object') {
+    customThemeTokens.light = { ...customThemeTokens.light, ...saved.customThemeTokens.light };
+  }
+  if (saved.customThemeTokens?.dark && typeof saved.customThemeTokens.dark === 'object') {
+    customThemeTokens.dark = { ...customThemeTokens.dark, ...saved.customThemeTokens.dark };
+  }
+  if (saved.selectedLightThemeKey && Object.prototype.hasOwnProperty.call(LIGHT_THEME_PRESETS, saved.selectedLightThemeKey)) {
+    selectedLightThemeKey = saved.selectedLightThemeKey;
+  }
+  if (saved.selectedDarkThemeKey && Object.prototype.hasOwnProperty.call(DARK_THEME_PRESETS, saved.selectedDarkThemeKey)) {
+    selectedDarkThemeKey = saved.selectedDarkThemeKey;
+  }
+
+  replaceStoredObject(systemProfiles, saved.systemProfiles);
+  replaceStoredObject(headmateProfilesByUser, saved.headmateProfilesByUser);
+  replaceStoredObject(headmateFoldersByUser, saved.headmateFoldersByUser);
+  replaceStoredObject(chatMessagesByUser, saved.chatMessagesByUser);
+  replaceStoredObject(partnerProfiles, saved.partnerProfiles);
+  replaceStoredObject(subsystemsByUser, saved.subsystemsByUser);
+  replaceStoredObject(itemProfiles, saved.itemProfiles);
+  replaceStoredObject(locationProfiles, saved.locationProfiles);
+  replaceStoredObject(medicationsByUser, saved.medicationsByUser);
+  replaceStoredObject(medicationCheckinsByUser, saved.medicationCheckinsByUser);
+  replaceStoredObject(journalEntriesByUser, saved.journalEntriesByUser);
+  replaceStoredObject(journalShortcutsByUser, saved.journalShortcutsByUser);
+  replaceStoredObject(customTemplates, saved.customTemplates);
+  replaceStoredArray(historyEvents, saved.historyEvents);
+
+  if (hubNameInput) hubNameInput.value = hubSettings.name || 'System Hub';
+  if (hubDescInput) hubDescInput.value = hubSettings.description || '';
+  if (hubIconInput) hubIconInput.value = hubSettings.icon || '';
+  if (lightThemeSelect) lightThemeSelect.value = selectedLightThemeKey;
+  if (darkThemeSelect) darkThemeSelect.value = selectedDarkThemeKey;
+
+  moduleVisibilityToggleIds.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(moduleVisibilitySettings[key]);
+  });
+  privacyToggleIds.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(privacySettings[key]);
+  });
+  notifToggleIds.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(notificationSettings[key]);
+  });
+
+  applyHubInfo();
+  applyTerminology();
+  applyThemeSelection();
+  applyModuleVisibilitySettings();
+  rebuildUserDropdownOptions(saved.activeUser || '');
+
+  if (typeof renderSystemProfiles === 'function') renderSystemProfiles();
+  if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+  if (typeof renderPartnersTable === 'function') renderPartnersTable();
+  if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
+  if (typeof renderItemsTable === 'function') renderItemsTable(itemsSearch?.value || '');
+  if (typeof renderLocationsTable === 'function') renderLocationsTable(locationsSearch?.value || '');
+  if (typeof renderTemplatesTable === 'function') renderTemplatesTable(templatesSearch?.value || '');
+  if (typeof renderMedicationTracker === 'function') renderMedicationTracker();
+  if (typeof renderJournalModule === 'function') renderJournalModule();
+  if (typeof renderHistoryTimeline === 'function') renderHistoryTimeline();
+  if (typeof renderAccountModule === 'function') renderAccountModule();
+  if (typeof renderDashboard === 'function') renderDashboard();
+
+  if (options.persistLocal) {
+    try {
+      localStorage.setItem(HUB_STATE_STORAGE_KEY, JSON.stringify(buildHubStateSnapshot()));
+    } catch (_err) {
+      // Ignore local backup errors.
+    }
+  }
+
+  return true;
+}
+
+function persistHubState(options = {}) {
+  try {
+    const dump = buildHubStateSnapshot();
+    const serialized = JSON.stringify(dump);
+    localStorage.setItem(HUB_STATE_STORAGE_KEY, serialized);
+
+    if (options.remote === false || !USE_BACKEND_AUTH || !authToken || !loggedInAccountKey) {
+      return dump;
+    }
+
+    if (serialized === lastRemoteHubStateText) {
+      return dump;
+    }
+
+    if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
+    remoteHubStateSaveTimer = window.setTimeout(async () => {
+      try {
+        const result = await apiRequest('/api/me/state', {
+          method: 'PUT',
+          body: JSON.stringify({ hubState: dump })
+        });
+        if (result?.account) {
+          const savedAccount = normalizeRemoteAccount(result.account, loggedInAccountKey);
+          accounts[savedAccount.username] = savedAccount;
+          loggedInAccountKey = savedAccount.username;
+          persistAccountState();
+        }
+        lastRemoteHubStateText = JSON.stringify(result?.hubState || dump);
+      } catch (_err) {
+        // Keep the local backup and retry on the next change.
+      }
+    }, options.immediate ? 0 : 850);
+
+    return dump;
+  } catch (_err) {
+    // Ignore localStorage write issues.
+    return null;
+  }
+}
+
+function loadHubState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HUB_STATE_STORAGE_KEY) || 'null');
+    if (!saved || typeof saved !== 'object') return;
+    if (USE_BACKEND_AUTH && saved.ownerAccountKey && loggedInAccountKey && saved.ownerAccountKey !== loggedInAccountKey) return;
+    applyHubStateSnapshot(saved);
+  } catch (_err) {
+    // Ignore malformed saved data and keep defaults.
+  }
+}
+
+async function syncSessionFromBackend() {
+  if (!USE_BACKEND_AUTH || !authToken) return;
+
+  try {
+    const result = await apiRequest('/api/me');
+    const remoteAccount = normalizeRemoteAccount(result.account, loggedInAccountKey || 'user');
+    if (loggedInAccountKey && loggedInAccountKey !== remoteAccount.username) {
+      delete accounts[loggedInAccountKey];
+    }
+    accounts[remoteAccount.username] = remoteAccount;
+    loggedInAccountKey = remoteAccount.username;
+    persistAccountState();
+
+    let localSnapshot = null;
+    try {
+      localSnapshot = JSON.parse(localStorage.getItem(HUB_STATE_STORAGE_KEY) || 'null');
+    } catch (_err) {
+      localSnapshot = null;
+    }
+
+    const remoteSnapshot = remoteAccount.hubState && typeof remoteAccount.hubState === 'object' ? remoteAccount.hubState : null;
+    const localMatchesAccount = !localSnapshot?.ownerAccountKey || localSnapshot.ownerAccountKey === remoteAccount.username;
+    const localUpdatedAt = localMatchesAccount ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
+    const remoteUpdatedAt = new Date(remoteSnapshot?.updatedAt || 0).getTime();
+
+    if (remoteSnapshot && remoteUpdatedAt >= localUpdatedAt) {
+      applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
+      lastRemoteHubStateText = JSON.stringify(remoteSnapshot);
+    } else if (localMatchesAccount && localSnapshot) {
+      applyHubStateSnapshot(localSnapshot, { persistLocal: true });
+      persistHubState({ immediate: true });
+    }
+
+    await refreshAccountDirectoryFromBackend();
+    renderAccountModule();
+  } catch (_err) {
+    // Keep the last local session if the backend is temporarily unavailable.
+  }
+}
+
+let persistHubStateTimer = null;
+function scheduleHubStatePersist() {
+  if (persistHubStateTimer) window.clearTimeout(persistHubStateTimer);
+  persistHubStateTimer = window.setTimeout(() => {
+    persistHubState();
+    persistAccountState();
+  }, 650);
+}
+
+['click', 'change', 'input'].forEach((eventName) => {
+  document.addEventListener(eventName, () => {
+    scheduleHubStatePersist();
+  }, true);
+});
+
+window.addEventListener('beforeunload', () => {
+  persistHubState({ immediate: true });
+  persistAccountState();
+});
+
+loadHubState();
 applyTerminology();
 applyThemeSelection();
+applyModuleVisibilitySettings();
+syncSessionFromBackend();
 
 if (systemEditColorPicker && systemEditColor) {
   systemEditColorPicker.addEventListener('input', () => {

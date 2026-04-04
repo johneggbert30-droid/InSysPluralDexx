@@ -57,6 +57,13 @@ body {
   background: var(--bg);
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
 /* =====================
    Top Bar
    ===================== */
@@ -116,7 +123,7 @@ body {
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 20px;
+  font-size: 1.25rem;
   font-weight: 800;
   letter-spacing: -0.4px;
   color: var(--text);
@@ -135,7 +142,7 @@ body {
   border: 1.5px solid var(--border);
   background: var(--surface2);
   color: var(--text);
-  font-size: 14px;
+  font-size: 1rem;
   outline: none;
   transition: border-color var(--transition), box-shadow var(--transition);
 }
@@ -164,8 +171,8 @@ body {
   cursor: not-allowed;
   pointer-events: none;
 }
-.username { font-weight: 600; font-size: 14px; }
-.chevron { font-size: 11px; color: var(--text-muted); }
+.username { font-weight: 600; font-size: 1rem; }
+.chevron { font-size: 0.8rem; color: var(--text-muted); }
 
 .user-dropdown {
   display: none;
@@ -192,7 +199,7 @@ body {
   padding: 9px 10px;
   border-radius: var(--radius-sm);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 500;
   transition: background var(--transition);
 }
@@ -288,7 +295,7 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -297,15 +304,20 @@ body {
 .nav-item:hover { background: var(--accent-light); color: var(--accent); }
 .nav-item.active { background: var(--accent); color: #fff; }
 .nav-item.active:hover { background: var(--accent); color: #fff; }
-.nav-icon { font-size: 17px; flex-shrink: 0; width: 20px; text-align: center; }
+.nav-icon { font-size: 1.1rem; flex-shrink: 0; width: 20px; text-align: center; }
 
 /* =====================
    Main Content
    ===================== */
 .main-content {
-  flex: 1;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  height: calc(100vh - var(--topbar-h));
   overflow-y: auto;
-  min-height: calc(100vh - var(--topbar-h));
+  overflow-x: hidden;
   background: var(--bg);
 }
 
@@ -315,8 +327,9 @@ body {
 .module-page {
   display: none;
   flex-direction: column;
+  width: 100%;
   min-height: calc(100vh - var(--topbar-h));
-  padding: 28px 32px;
+  padding: 20px 32px 28px;
   background: var(--bg);
   animation: fadeIn 0.18s ease;
 }
@@ -356,7 +369,7 @@ body {
   );
 }
 .page-header h1 {
-  font-size: 26px;
+  font-size: 1.75rem;
   font-weight: 700;
   color: var(--text);
 }
@@ -486,8 +499,8 @@ body {
 .card.clickable { cursor: pointer; }
 .card:hover { box-shadow: var(--shadow-md); }
 .card.clickable:hover { transform: translateY(-2px); }
-.card h3 { font-size: 13px; color: var(--text-muted); margin-bottom: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-.card p { font-size: 14px; color: var(--text); }
+.card h3 { font-size: 0.86rem; color: var(--text-muted); margin-bottom: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.card p { font-size: 1rem; color: var(--text); }
 
 #page-dashboard .card {
   background:
@@ -500,7 +513,7 @@ body {
 }
 
 .stat {
-  font-size: 32px !important;
+  font-size: 2.15rem !important;
   font-weight: 700 !important;
   color: var(--accent) !important;
   margin-bottom: 8px;
@@ -551,7 +564,7 @@ body {
 .widget h3 { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
 
 .activity-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
-.activity-list li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text); }
+.activity-list li { display: flex; align-items: center; gap: 10px; font-size: 1rem; color: var(--text); }
 
 .quick-links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
 
@@ -815,7 +828,7 @@ body {
   border-radius: var(--radius-sm);
   background: var(--surface2);
   color: var(--text);
-  font-size: 14px;
+  font-size: 1rem;
   outline: none;
   transition: border-color var(--transition);
 }
@@ -830,7 +843,7 @@ body {
   color: #fff;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 0.98rem;
   font-weight: 600;
   cursor: pointer;
   transition: opacity var(--transition), transform var(--transition);
@@ -843,7 +856,7 @@ body {
   color: var(--text);
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 0.92rem;
   cursor: pointer;
   transition: background var(--transition), color var(--transition), border-color var(--transition);
 }
@@ -873,7 +886,7 @@ body {
   color: #fff;
   border: 1.5px solid color-mix(in srgb, var(--danger) 75%, #000 25%);
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: 0.92rem;
   font-weight: 600;
   cursor: pointer;
   transition: opacity var(--transition), transform var(--transition);
@@ -882,12 +895,18 @@ body {
 
 .account-error {
   color: var(--danger);
-  font-size: 13px;
+  font-size: 0.9rem;
   margin: .5rem 0 0;
   padding: 6px 10px;
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   border-radius: var(--radius-sm);
   border-left: 3px solid var(--danger);
+}
+
+.empty-state-cell {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 18px 16px !important;
 }
 
 .quick-btn {
@@ -896,7 +915,7 @@ body {
   color: var(--accent);
   border: 1.5px solid transparent;
   border-radius: var(--radius-sm);
-  font-size: 14px;
+  font-size: 0.98rem;
   font-weight: 600;
   cursor: pointer;
   transition: background var(--transition), border-color var(--transition);
@@ -994,7 +1013,10 @@ body {
 .partners-diagram-canvas {
   width: 100%;
   min-height: 360px;
-  background: radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--accent) 8%, transparent) 0, transparent 50%), var(--surface);
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--accent) 12%, transparent) 0, transparent 50%),
+    radial-gradient(circle at 85% 15%, color-mix(in srgb, var(--success) 10%, transparent) 0, transparent 40%),
+    var(--surface);
 }
 
 .partners-diagram-svg {
@@ -1004,38 +1026,59 @@ body {
 }
 
 .partners-edge {
-  stroke: color-mix(in srgb, var(--accent) 45%, var(--border) 55%);
-  stroke-width: 1.8;
+  stroke-width: 4;
+  stroke-linecap: round;
+  opacity: 0.88;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.12));
+}
+
+.partners-edge-label-bg {
+  fill: color-mix(in srgb, var(--surface) 88%, var(--accent-light) 12%);
+  stroke-width: 1.2;
+  rx: 10;
+  ry: 10;
 }
 
 .partners-edge-label {
-  fill: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
+  fill: var(--text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-anchor: middle;
 }
 
 .partners-node {
-  fill: color-mix(in srgb, var(--accent) 25%, var(--surface) 75%);
-  stroke: color-mix(in srgb, var(--accent) 70%, #111 30%);
-  stroke-width: 2;
+  stroke-width: 4;
   cursor: pointer;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.18));
+  transition: transform var(--transition), stroke-width var(--transition), filter var(--transition);
+}
+
+.partners-node:hover {
+  stroke-width: 5;
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.22));
 }
 
 .partners-node.selected {
-  stroke-width: 3;
+  stroke-width: 5.5;
 }
 
 .partners-node.self {
   fill: color-mix(in srgb, var(--accent) 45%, var(--surface) 55%);
   stroke: color-mix(in srgb, var(--accent) 85%, #111 15%);
-  stroke-width: 3;
+  stroke-width: 4.5;
 }
 
 .partners-node-label {
   fill: var(--text);
-  font-size: 12px;
+  font-size: 0.8rem;
   font-weight: 700;
   text-anchor: middle;
+}
+
+.partners-node-label--type {
+  fill: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .location-map-node {
@@ -1861,7 +1904,7 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
     var(--success)
   );
 }
-.settings-group h3 { font-size: 14px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
+.settings-group h3 { font-size: 1rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 14px; }
 .setting-row {
   display: flex;
   align-items: center;
@@ -1870,15 +1913,15 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   border-bottom: 1px solid var(--border);
 }
 .setting-row:last-child { border-bottom: none; }
-.setting-row label { font-size: 14px; font-weight: 500; }
-.setting-value { font-size: 14px; color: var(--text-muted); }
+.setting-row label { font-size: 1rem; font-weight: 500; }
+.setting-value { font-size: 1rem; color: var(--text-muted); }
 .setting-select, .setting-input {
   padding: 7px 12px;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface2);
   color: var(--text);
-  font-size: 14px;
+  font-size: 1rem;
   outline: none;
   transition: border-color var(--transition);
 }
@@ -2133,7 +2176,7 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   margin-bottom: 8px;
 }
 .profile-info h2 { font-size: 22px; margin-bottom: 4px; }
-.profile-info p { font-size: 14px; color: var(--text-muted); }
+.profile-info p { font-size: 1rem; color: var(--text-muted); }
 
 .account-friends-list {
   display: grid;
@@ -2143,9 +2186,10 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 
 .account-friend-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+  flex-wrap: wrap;
   padding: 14px;
   border: 1.5px solid var(--border);
   border-radius: var(--radius-sm);
@@ -2156,6 +2200,7 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1 1 260px;
 }
 
 .account-friend-meta {
@@ -2179,6 +2224,14 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 
 .account-friend-actions .setting-input {
   min-width: 120px;
+}
+
+.account-directory-grid {
+  margin-top: 0;
+}
+
+.account-directory-card .account-friend-meta strong {
+  font-size: 1rem;
 }
 
 .headmate-hint {

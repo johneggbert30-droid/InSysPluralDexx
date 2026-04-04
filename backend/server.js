@@ -12,13 +12,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-this-before-deploying';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
+const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 1024 * 1024);
 
 app.use(cors({
   origin: FRONTEND_ORIGIN
     ? FRONTEND_ORIGIN.split(',').map((entry) => entry.trim()).filter(Boolean)
     : true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 function ensureDataFile() {
   if (!fs.existsSync(DATA_DIR)) {
@@ -50,12 +51,32 @@ function normalizeTrustLevel(level, fallback = 'friends') {
   return TRUST_LEVELS.includes(normalized) ? normalized : fallback;
 }
 
+function cloneJson(value, fallback = {}) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? fallback));
+  } catch (_err) {
+    return Array.isArray(fallback) ? [...fallback] : { ...fallback };
+  }
+}
+
+function normalizeHubState(hubState = {}) {
+  if (!hubState || typeof hubState !== 'object' || Array.isArray(hubState)) {
+    return { version: 1, updatedAt: new Date().toISOString(), activeUser: 'No system' };
+  }
+  const cloned = cloneJson(hubState, {});
+  if (!cloned.version) cloned.version = 1;
+  if (!cloned.updatedAt) cloned.updatedAt = new Date().toISOString();
+  if (!cloned.activeUser) cloned.activeUser = 'No system';
+  return cloned;
+}
+
 function sanitizeUser(user, store = { users: {} }, viewerUsername = '') {
   if (!user) return null;
   const { passwordHash, ...safeUser } = user;
   const friends = user.friends && typeof user.friends === 'object' ? { ...user.friends } : {};
 
   safeUser.friends = friends;
+  safeUser.hubState = normalizeHubState(user.hubState || {});
   safeUser.friendProfiles = Object.entries(friends).map(([username, trustLevel]) => {
     const friend = store.users?.[username];
     return {
@@ -92,6 +113,11 @@ function createDefaultUser(username) {
     banner: `${displayName} Banner`,
     color: '#6c63ff',
     friends: {},
+    hubState: {
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      activeUser: 'No system'
+    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -170,6 +196,34 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
+app.get('/api/accounts', authRequired, (req, res) => {
+  const store = readStore();
+  const viewerUsername = req.auth.username;
+  const viewer = store.users[viewerUsername];
+
+  if (!viewer) {
+    return res.status(404).json({ error: 'Account not found.' });
+  }
+
+  const accounts = Object.values(store.users || {})
+    .filter(Boolean)
+    .map((user) => ({
+      username: user.username,
+      name: user.name || user.username,
+      description: user.description || 'No description set.',
+      tags: user.tags || 'Not set',
+      profilePhoto: user.profilePhoto || user.username?.[0]?.toUpperCase() || 'U',
+      color: user.color || '#6c63ff',
+      trustLevel: normalizeTrustLevel(viewer.friends?.[user.username], ''),
+      theirTrustLevel: normalizeTrustLevel(user.friends?.[viewerUsername], ''),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    }))
+    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  return res.json({ accounts });
+});
+
 app.get('/api/me', authRequired, (req, res) => {
   const store = readStore();
   const user = store.users[req.auth.username];
@@ -233,6 +287,48 @@ app.put('/api/me', authRequired, async (req, res) => {
   return res.json({
     token: createToken(requestedUsername),
     account: sanitizeUser(updatedUser, store, requestedUsername)
+  });
+});
+
+app.get('/api/me/state', authRequired, (req, res) => {
+  const store = readStore();
+  const user = store.users[req.auth.username];
+
+  if (!user) {
+    return res.status(404).json({ error: 'Account not found.' });
+  }
+
+  return res.json({ hubState: normalizeHubState(user.hubState || {}) });
+});
+
+app.put('/api/me/state', authRequired, (req, res) => {
+  const store = readStore();
+  const currentUser = store.users[req.auth.username];
+
+  if (!currentUser) {
+    return res.status(404).json({ error: 'Account not found.' });
+  }
+
+  const hubState = req.body?.hubState;
+  if (!hubState || typeof hubState !== 'object' || Array.isArray(hubState)) {
+    return res.status(400).json({ error: 'hubState must be a JSON object.' });
+  }
+
+  const serialized = JSON.stringify(hubState);
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_HUB_STATE_BYTES) {
+    return res.status(413).json({ error: 'Saved hub state is too large.' });
+  }
+
+  currentUser.hubState = normalizeHubState(JSON.parse(serialized));
+  currentUser.hubState.updatedAt = new Date().toISOString();
+  currentUser.updatedAt = new Date().toISOString();
+  store.users[req.auth.username] = currentUser;
+  writeStore(store);
+
+  return res.json({
+    ok: true,
+    hubState: currentUser.hubState,
+    account: sanitizeUser(currentUser, store, req.auth.username)
   });
 });
 
