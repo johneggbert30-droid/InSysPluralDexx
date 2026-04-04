@@ -7906,29 +7906,29 @@ let customThemeTokens = {
 const LIGHT_THEME_PRESETS = {
   'default-light': { ...BASE_LIGHT_THEME, '--accent': '#6c63ff', '--accent-light': '#e7f7f7' },
   'pastel-rainbow': {
-    '--bg': '#ffd9df',           // pastel red
-    '--surface': '#ffe4cc',      // pastel orange
-    '--surface2': '#fff4b8',     // pastel yellow
-    '--border': '#e4f3b2',       // pastel yellow-green
-    '--text': '#bfe8b8',         // pastel green
-    '--text-muted': '#b7efe3',   // pastel green-blue
-    '--accent': '#bddcff',       // pastel blue
-    '--accent-light': '#d8d0ff', // pastel blue-purple
-    '--danger': '#e4c6ff',       // pastel purple
-    '--success': '#ffcae4'       // pastel pink
+    '--bg': '#fff6fb',
+    '--surface': '#fffdf8',
+    '--surface2': '#f6f8ff',
+    '--border': '#d9defc',
+    '--text': '#2d2340',
+    '--text-muted': '#6f6687',
+    '--accent': '#7c6cff',
+    '--accent-light': '#eee9ff',
+    '--danger': '#ff7ba5',
+    '--success': '#4ec7a5'
   },
   'valentine-light': { '--bg': '#fff4f8', '--surface': '#ffffff', '--surface2': '#ffe9f1', '--border': '#f6cfe0', '--text': '#5e2f46', '--text-muted': '#a86586', '--accent': '#f472b6', '--accent-light': '#ffe3f1', '--danger': '#ec4899', '--success': '#fb7185' },
   'neon-rainbow': {
-    '--bg': '#ff003c',         // red
-    '--surface': '#ff6a00',    // orange
-    '--surface2': '#fff200',   // yellow
-    '--border': '#9dff00',     // yellow-green
-    '--text': '#00ff66',       // green
-    '--text-muted': '#00ffd9', // green-blue
-    '--accent': '#00a6ff',     // blue
-    '--accent-light': '#6a00ff', // blue-purple
-    '--danger': '#b400ff',     // purple
-    '--success': '#ff4fd8'     // pink
+    '--bg': '#f5f7ff',
+    '--surface': '#ffffff',
+    '--surface2': '#eef4ff',
+    '--border': '#c8d6ff',
+    '--text': '#1d2340',
+    '--text-muted': '#5e6b95',
+    '--accent': '#00b8ff',
+    '--accent-light': '#daf4ff',
+    '--danger': '#ff5db1',
+    '--success': '#2fd6a6'
   },
   'watermelon': { '--bg': '#f6fff7', '--surface': '#ffffff', '--surface2': '#eefbef', '--border': '#cfead3', '--text': '#2f4a3a', '--text-muted': '#678579', '--accent': '#f472b6', '--accent-light': '#ffe5ef', '--danger': '#ef4444', '--success': '#22c55e' },
   'sunset': { '--bg': '#fff4f8', '--surface': '#fffaf5', '--surface2': '#ffe9d6', '--border': '#ffd2c2', '--text': '#5b4a5f', '--text-muted': '#9b7f97', '--accent': '#ff9f68', '--accent-light': '#ffe2c8', '--danger': '#ff8fb1', '--success': '#8ecbff' },
@@ -7949,16 +7949,16 @@ const DARK_THEME_PRESETS = {
   'forest': { '--bg': '#0f1a14', '--surface': '#16251c', '--surface2': '#1d3025', '--border': '#32513f', '--text': '#def3e3', '--text-muted': '#9fc4aa', '--accent': '#22c55e', '--accent-light': '#1b3528', '--danger': '#65a30d', '--success': '#4ade80' },
   'mystic': { '--bg': '#1b1226', '--surface': '#261934', '--surface2': '#342244', '--border': '#53356f', '--text': '#ffe8f7', '--text-muted': '#d3add2', '--accent': '#c084fc', '--accent-light': '#3b2a4f', '--danger': '#f472b6', '--success': '#a78bfa' },
   'dark-rainbow': {
-    '--bg': '#661827',         // dark red (~40%)
-    '--surface': '#663300',    // dark orange
-    '--surface2': '#666000',   // dark yellow
-    '--border': '#406600',     // dark yellow-green
-    '--text': '#006629',       // dark green
-    '--text-muted': '#00665a', // dark green-blue
-    '--accent': '#004266',     // dark blue
-    '--accent-light': '#2a0066', // dark blue-purple
-    '--danger': '#480066',     // dark purple
-    '--success': '#661f57'     // dark pink
+    '--bg': '#10131f',
+    '--surface': '#171c2c',
+    '--surface2': '#202840',
+    '--border': '#36446d',
+    '--text': '#edf2ff',
+    '--text-muted': '#aab6d6',
+    '--accent': '#6ec8ff',
+    '--accent-light': '#223154',
+    '--danger': '#ff84c1',
+    '--success': '#63e4b2'
   },
   'night-glow': { '--bg': '#1F1E2F', '--surface': '#2E3360', '--surface2': '#3d4273', '--border': '#6B79FF', '--text': '#FBEAFF', '--text-muted': '#F295C6', '--accent': '#9EE6CF', '--accent-light': '#2f3a58', '--danger': '#F295C6', '--success': '#9EE6CF' },
   'custom-dark': null
