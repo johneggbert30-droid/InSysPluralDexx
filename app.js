@@ -8670,7 +8670,10 @@ function applyHubStateSnapshot(saved = {}, options = {}) {
 
   if (options.persistLocal) {
     try {
-      localStorage.setItem(HUB_STATE_STORAGE_KEY, JSON.stringify(buildHubStateSnapshot()));
+      writeStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, buildHubStateSnapshot(), {
+        maxBytes: MAX_SAFE_LOCAL_STATE_BYTES,
+        warningMessage: 'Uploaded media made the browser cache too large, so a compact backup was saved to stop data wipes. Use smaller images or image URLs for the most reliable persistence.'
+      });
     } catch (_err) {
       // Ignore local backup errors.
     }
@@ -8796,7 +8799,7 @@ async function syncSessionFromBackend() {
 
     let localSnapshot = null;
     try {
-      localSnapshot = JSON.parse(localStorage.getItem(HUB_STATE_STORAGE_KEY) || 'null');
+      localSnapshot = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
     } catch (_err) {
       localSnapshot = null;
     }
