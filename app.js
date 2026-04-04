@@ -3881,7 +3881,61 @@ function renderCustomFieldArticles(profile, privacyValue = 'public') {
 }
 
 const MEDIA_FILE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
-const MAX_MEDIA_UPLOAD_BYTES = 4 * 1024 * 1024;
+const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_EMBEDDED_IMAGE_BYTES = 350 * 1024;
+const MAX_EMBEDDED_GIF_BYTES = 900 * 1024;
+const MAX_SAFE_LOCAL_STATE_BYTES = 4 * 1024 * 1024;
+let lastStorageWarningText = '';
+
+function estimateStringBytes(value) {
+  try {
+    return new Blob([String(value || '')]).size;
+  } catch (_err) {
+    return String(value || '').length;
+  }
+}
+
+function isEmbeddedMediaValue(value) {
+  return /^data:image\//i.test(String(value || '').trim());
+}
+
+function getEmbeddedMediaByteLimit(value = '') {
+  return /^data:image\/gif/i.test(String(value || '').trim()) ? MAX_EMBEDDED_GIF_BYTES : MAX_EMBEDDED_IMAGE_BYTES;
+}
+
+function sanitizeEmbeddedMediaValue(value, fallback = '') {
+  const raw = String(value || '').trim();
+  if (!isEmbeddedMediaValue(raw)) return raw || fallback;
+  return estimateStringBytes(raw) <= getEmbeddedMediaByteLimit(raw) ? raw : fallback;
+}
+
+function cloneForStorage(value, keyHint = '') {
+  if (typeof value === 'string') {
+    return isEmbeddedMediaValue(value) ? sanitizeEmbeddedMediaValue(value, keyHint === 'profilePhoto' ? '' : '') : value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneForStorage(entry, keyHint));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const output = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    output[key] = cloneForStorage(entry, key);
+  });
+  return output;
+}
+
+function showStorageWarning(message) {
+  const text = String(message || '').trim();
+  if (!text || lastStorageWarningText === text) return;
+  lastStorageWarningText = text;
+  window.setTimeout(() => {
+    if (lastStorageWarningText === text) lastStorageWarningText = '';
+  }, 2500);
+  safeAlert(text);
+}
 
 function renderMediaInputControl({ label, id, value, placeholder = '', helperText = '' }) {
   const rawValue = String(value || '').trim();
@@ -3999,13 +4053,54 @@ function primeStoredMediaInput(input, labelText = '[Uploaded image/GIF saved]') 
   }
 }
 
-function readFileAsDataUrl(file) {
+function loadImageElement(src) {
   return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not process that image.'));
+    img.src = src;
+  });
+}
+
+async function optimizeStaticImageDataUrl(dataUrl) {
+  const img = await loadImageElement(dataUrl);
+  const naturalWidth = img.naturalWidth || img.width || 1;
+  const naturalHeight = img.naturalHeight || img.height || 1;
+  const maxDimension = 900;
+  const scale = Math.min(1, maxDimension / Math.max(naturalWidth, naturalHeight));
+
+  if (scale >= 0.999 && estimateStringBytes(dataUrl) <= MAX_EMBEDDED_IMAGE_BYTES) {
+    return dataUrl;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+
+  const context = canvas.getContext('2d');
+  if (!context) return dataUrl;
+
+  context.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/webp', 0.82);
+}
+
+async function readFileAsDataUrl(file) {
+  const rawDataUrl = await new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ''));
     reader.onerror = () => reject(new Error('Could not read that file.'));
     reader.readAsDataURL(file);
   });
+
+  if (/^image\/(png|jpe?g|webp)$/i.test(String(file?.type || ''))) {
+    try {
+      return await optimizeStaticImageDataUrl(rawDataUrl);
+    } catch (_err) {
+      return rawDataUrl;
+    }
+  }
+
+  return rawDataUrl;
 }
 
 function enhanceMediaPickerInput(input, options = {}) {
@@ -4106,13 +4201,17 @@ document.addEventListener('change', async (event) => {
   }
 
   if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
-    safeAlert('Please choose an image or GIF under 4 MB.');
+    safeAlert('Please choose an image or GIF under 2 MB.');
     picker.value = '';
     return;
   }
 
   try {
     const dataUrl = await readFileAsDataUrl(file);
+    const maxEmbeddedBytes = /^image\/gif$/i.test(String(file.type || '')) ? MAX_EMBEDDED_GIF_BYTES : MAX_EMBEDDED_IMAGE_BYTES;
+    if (estimateStringBytes(dataUrl) > maxEmbeddedBytes) {
+      throw new Error('That file is too large to save safely. Please use a smaller image/GIF or paste an image URL instead.');
+    }
     storeMediaInputValue(target, dataUrl, `[Uploaded] ${file.name}`);
     target.dispatchEvent(new Event('input', { bubbles: true }));
     target.dispatchEvent(new Event('change', { bubbles: true }));
@@ -6976,14 +7075,14 @@ async function apiRequest(path, options = {}) {
 
 function persistAccountState() {
   try {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(cloneForStorage(accounts)));
     if (loggedInAccountKey && accounts[loggedInAccountKey]) {
       localStorage.setItem(ACCOUNT_SESSION_KEY, loggedInAccountKey);
     } else {
       localStorage.removeItem(ACCOUNT_SESSION_KEY);
     }
   } catch (_err) {
-    // Ignore storage issues in restricted browsing modes.
+    showStorageWarning('Some local data could not be cached because uploaded images/GIFs are too large. Smaller files or image URLs will save more reliably.');
   }
 }
 
@@ -8258,7 +8357,7 @@ function replaceStoredArray(target, source = []) {
 }
 
 function buildHubStateSnapshot() {
-  return {
+  const snapshot = {
     version: 1,
     ownerAccountKey: loggedInAccountKey || '',
     updatedAt: new Date().toISOString(),
@@ -8287,6 +8386,8 @@ function buildHubStateSnapshot() {
     customThemeTokens: cloneJsonData(customThemeTokens, {}),
     activeUser: getActiveUserName()
   };
+
+  return cloneForStorage(snapshot);
 }
 
 function applyHubStateSnapshot(saved = {}, options = {}) {
@@ -8377,43 +8478,47 @@ function applyHubStateSnapshot(saved = {}, options = {}) {
 }
 
 function persistHubState(options = {}) {
+  const dump = buildHubStateSnapshot();
+  const serialized = JSON.stringify(dump);
+
   try {
-    const dump = buildHubStateSnapshot();
-    const serialized = JSON.stringify(dump);
     localStorage.setItem(HUB_STATE_STORAGE_KEY, serialized);
-
-    if (options.remote === false || !USE_BACKEND_AUTH || !authToken || !loggedInAccountKey) {
-      return dump;
-    }
-
-    if (serialized === lastRemoteHubStateText) {
-      return dump;
-    }
-
-    if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
-    remoteHubStateSaveTimer = window.setTimeout(async () => {
-      try {
-        const result = await apiRequest('/api/me/state', {
-          method: 'PUT',
-          body: JSON.stringify({ hubState: dump })
-        });
-        if (result?.account) {
-          const savedAccount = normalizeRemoteAccount(result.account, loggedInAccountKey);
-          accounts[savedAccount.username] = savedAccount;
-          loggedInAccountKey = savedAccount.username;
-          persistAccountState();
-        }
-        lastRemoteHubStateText = JSON.stringify(result?.hubState || dump);
-      } catch (_err) {
-        // Keep the local backup and retry on the next change.
-      }
-    }, options.immediate ? 0 : 850);
-
-    return dump;
   } catch (_err) {
-    // Ignore localStorage write issues.
-    return null;
+    showStorageWarning('The browser cache is full, so some image/GIF-heavy changes could not be stored locally. Smaller files or image URLs will prevent resets.');
   }
+
+  if (estimateStringBytes(serialized) > MAX_SAFE_LOCAL_STATE_BYTES) {
+    showStorageWarning('Your saved data is getting too large for reliable browser storage. Smaller uploads or pasted image URLs will keep it from being wiped.');
+  }
+
+  if (options.remote === false || !USE_BACKEND_AUTH || !authToken || !loggedInAccountKey) {
+    return dump;
+  }
+
+  if (serialized === lastRemoteHubStateText) {
+    return dump;
+  }
+
+  if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
+  remoteHubStateSaveTimer = window.setTimeout(async () => {
+    try {
+      const result = await apiRequest('/api/me/state', {
+        method: 'PUT',
+        body: JSON.stringify({ hubState: dump })
+      });
+      if (result?.account) {
+        const savedAccount = normalizeRemoteAccount(result.account, loggedInAccountKey);
+        accounts[savedAccount.username] = savedAccount;
+        loggedInAccountKey = savedAccount.username;
+        persistAccountState();
+      }
+      lastRemoteHubStateText = JSON.stringify(result?.hubState || dump);
+    } catch (err) {
+      showStorageWarning(err?.message || 'The latest save could not reach the backend.');
+    }
+  }, options.immediate ? 0 : 850);
+
+  return dump;
 }
 
 function loadHubState() {
