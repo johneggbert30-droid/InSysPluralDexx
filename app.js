@@ -1903,6 +1903,7 @@ function renderPartnerEditorFields(profile) {
   }).join('');
 
   bindColorPickers(partnerEditorFields);
+  bindAutoGrowingTextareas(partnerEditorFields);
 }
 
 function readPartnerEditorValues(baseProfile) {
@@ -2873,6 +2874,7 @@ function renderHeadmateEditorFields(profile) {
   }).join('');
 
   bindColorPickers(headmateEditorFields);
+  bindAutoGrowingTextareas(headmateEditorFields);
 }
 
 function readHeadmateEditorValues(baseProfile) {
@@ -3371,6 +3373,18 @@ function renderRelationLink(module, key, label) {
   return `<button class="relation-link" type="button" data-nav-module="${module}" data-nav-key="${key}">${escapeHtml(label)}</button>`;
 }
 
+function renderStoredMediaValue(value, label = 'Saved image/GIF') {
+  const raw = String(value || '').trim();
+  if (!isMediaUrl(raw)) return '';
+
+  return `
+    <div class="stored-media-preview">
+      <div class="stored-media-preview-thumb" style="background-image:url('${escapeCssUrl(raw)}')"></div>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
 function renderProfileFieldValue(context, field, profile) {
   if (field.type === 'boolean') return boolChip(Boolean(profile[field.key]));
 
@@ -3379,6 +3393,13 @@ function renderProfileFieldValue(context, field, profile) {
   const normalized = text.trim().toLowerCase();
   if (!text.trim() || ['not set', 'none', 'n/a'].includes(normalized)) {
     return escapeHtml(text || 'Not set');
+  }
+
+  if (field.key === 'profilePhoto' && isMediaUrl(text)) {
+    return renderStoredMediaValue(text, 'Uploaded photo/GIF');
+  }
+  if (field.key === 'banner' && isMediaUrl(text)) {
+    return renderStoredMediaValue(text, 'Saved banner image/GIF');
   }
 
   const parts = text.split(',').map((part) => part.trim()).filter(Boolean);
@@ -4222,12 +4243,33 @@ document.addEventListener('change', async (event) => {
   }
 });
 
+function autoSizeTextarea(textarea) {
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${Math.max(textarea.scrollHeight, 78)}px`;
+}
+
+function bindAutoGrowingTextareas(container = document) {
+  if (!container) return;
+  container.querySelectorAll('textarea.setting-input').forEach((textarea) => {
+    autoSizeTextarea(textarea);
+    if (textarea.dataset.autoGrowBound === 'true') return;
+
+    textarea.addEventListener('input', () => autoSizeTextarea(textarea));
+    textarea.dataset.autoGrowBound = 'true';
+  });
+}
+
 document.addEventListener('input', (event) => {
   const input = event.target.closest('.setting-input[id]');
   if (!input || input.dataset.settingMediaSyncing === 'true') return;
   if (input.dataset.mediaValue && input.value !== input.dataset.mediaLabel) {
     delete input.dataset.mediaValue;
     delete input.dataset.mediaLabel;
+  }
+
+  if (input.matches('textarea.setting-input')) {
+    autoSizeTextarea(input);
   }
 });
 
@@ -4875,6 +4917,7 @@ function renderLocationEditorFields(profile) {
   }).join('');
 
   bindColorPickers(locationEditorFields);
+  bindAutoGrowingTextareas(locationEditorFields);
 }
 
 function readLocationEditorValues(base) {
@@ -5352,6 +5395,7 @@ function renderSubsystemEditorFields(subsystem) {
   }).join('');
 
   bindColorPickers(subsystemEditorFields);
+  bindAutoGrowingTextareas(subsystemEditorFields);
 }
 
 function readSubsystemEditorValues(base) {
@@ -5743,6 +5787,7 @@ function renderItemEditorFields(profile) {
   }).join('');
 
   bindColorPickers(itemEditorFields);
+  bindAutoGrowingTextareas(itemEditorFields);
 }
 
 function readItemEditorValues(base) {
@@ -6214,6 +6259,7 @@ function renderTemplateEditorFields(profile) {
   }).join('');
 
   bindColorPickers(templateEditorFields);
+  bindAutoGrowingTextareas(templateEditorFields);
 }
 
 function readTemplateEditorValues(baseProfile) {
@@ -7076,13 +7122,18 @@ async function apiRequest(path, options = {}) {
 function persistAccountState() {
   try {
     localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(cloneForStorage(accounts)));
-    if (loggedInAccountKey && accounts[loggedInAccountKey]) {
+  } catch (_err) {
+    showStorageWarning('Some local data could not be cached because uploaded images/GIFs are too large. Smaller files or image URLs will save more reliably.');
+  }
+
+  try {
+    if (loggedInAccountKey) {
       localStorage.setItem(ACCOUNT_SESSION_KEY, loggedInAccountKey);
     } else {
       localStorage.removeItem(ACCOUNT_SESSION_KEY);
     }
   } catch (_err) {
-    showStorageWarning('Some local data could not be cached because uploaded images/GIFs are too large. Smaller files or image URLs will save more reliably.');
+    // Ignore session persistence issues.
   }
 }
 
@@ -7098,7 +7149,10 @@ function loadAccountState() {
 
     authToken = String(localStorage.getItem(AUTH_TOKEN_KEY) || '').trim();
     const savedSession = (localStorage.getItem(ACCOUNT_SESSION_KEY) || '').trim().toLowerCase();
-    if (savedSession && accounts[savedSession] && (!USE_BACKEND_AUTH || authToken)) {
+    if (savedSession && (!USE_BACKEND_AUTH || authToken)) {
+      if (!accounts[savedSession]) {
+        accounts[savedSession] = normalizeRemoteAccount({ username: savedSession, name: savedSession }, savedSession);
+      }
       loggedInAccountKey = savedSession;
     }
   } catch (_err) {
@@ -7109,7 +7163,7 @@ function loadAccountState() {
 
 function isSignedIn() {
   return USE_BACKEND_AUTH
-    ? Boolean(authToken && loggedInAccountKey && accounts[loggedInAccountKey])
+    ? Boolean(authToken && loggedInAccountKey)
     : Boolean(loggedInAccountKey && accounts[loggedInAccountKey]);
 }
 
@@ -8612,3 +8666,4 @@ enhanceMediaPickerInput(systemEditPhoto, { kind: 'photo' });
 enhanceMediaPickerInput(systemEditBanner, { kind: 'banner' });
 enhanceMediaPickerInput(editAccountPhotoInput, { kind: 'photo' });
 enhanceMediaPickerInput(editAccountBannerInput, { kind: 'banner' });
+bindAutoGrowingTextareas(document);
