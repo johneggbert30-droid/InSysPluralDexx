@@ -7121,7 +7121,13 @@ async function apiRequest(path, options = {}) {
 
 function persistAccountState() {
   try {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(cloneForStorage(accounts)));
+    const currentAccounts = cloneForStorage(accounts);
+    const existingAccounts = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || '{}');
+    const mergedAccounts = existingAccounts && typeof existingAccounts === 'object' && !Array.isArray(existingAccounts)
+      ? { ...existingAccounts, ...currentAccounts }
+      : currentAccounts;
+
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(mergedAccounts));
   } catch (_err) {
     showStorageWarning('Some local data could not be cached because uploaded images/GIFs are too large. Smaller files or image URLs will save more reliably.');
   }
@@ -8444,6 +8450,33 @@ function buildHubStateSnapshot() {
   return cloneForStorage(snapshot);
 }
 
+function getHubStateEntityCounts(snapshot = {}) {
+  const systemCount = Object.keys(snapshot?.systemProfiles || {}).length;
+  const headmateCount = Object.values(snapshot?.headmateProfilesByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+  const partnerCount = Object.keys(snapshot?.partnerProfiles || {}).length;
+  const subsystemCount = Object.values(snapshot?.subsystemsByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+  const itemCount = Object.keys(snapshot?.itemProfiles || {}).length;
+  const locationCount = Object.keys(snapshot?.locationProfiles || {}).length;
+  const journalCount = Object.values(snapshot?.journalEntriesByUser || {}).reduce((sum, entries) => {
+    return sum + (Array.isArray(entries) ? entries.length : 0);
+  }, 0);
+
+  return {
+    systemCount,
+    headmateCount,
+    partnerCount,
+    subsystemCount,
+    itemCount,
+    locationCount,
+    journalCount,
+    total: systemCount + headmateCount + partnerCount + subsystemCount + itemCount + locationCount + journalCount
+  };
+}
+
 function applyHubStateSnapshot(saved = {}, options = {}) {
   if (!saved || typeof saved !== 'object') return false;
 
@@ -8579,7 +8612,13 @@ function loadHubState() {
   try {
     const saved = JSON.parse(localStorage.getItem(HUB_STATE_STORAGE_KEY) || 'null');
     if (!saved || typeof saved !== 'object') return;
-    if (USE_BACKEND_AUTH && saved.ownerAccountKey && loggedInAccountKey && saved.ownerAccountKey !== loggedInAccountKey) return;
+
+    if (USE_BACKEND_AUTH) {
+      const snapshotOwner = normalizeLookupName(saved.ownerAccountKey || '');
+      const activeOwner = normalizeLookupName(loggedInAccountKey || '');
+      if (!snapshotOwner || !activeOwner || snapshotOwner !== activeOwner) return;
+    }
+
     applyHubStateSnapshot(saved);
   } catch (_err) {
     // Ignore malformed saved data and keep defaults.
@@ -8607,14 +8646,21 @@ async function syncSessionFromBackend() {
     }
 
     const remoteSnapshot = remoteAccount.hubState && typeof remoteAccount.hubState === 'object' ? remoteAccount.hubState : null;
-    const localMatchesAccount = !localSnapshot?.ownerAccountKey || localSnapshot.ownerAccountKey === remoteAccount.username;
+    const localOwner = normalizeLookupName(localSnapshot?.ownerAccountKey || '');
+    const localMatchesAccount = Boolean(localOwner) && localOwner === normalizeLookupName(remoteAccount.username);
     const localUpdatedAt = localMatchesAccount ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
     const remoteUpdatedAt = new Date(remoteSnapshot?.updatedAt || 0).getTime();
+    const localCounts = localMatchesAccount ? getHubStateEntityCounts(localSnapshot) : { total: 0 };
+    const remoteCounts = remoteSnapshot ? getHubStateEntityCounts(remoteSnapshot) : { total: 0 };
+    const shouldUseLocalSnapshot = localMatchesAccount
+      && localCounts.total > 0
+      && (localUpdatedAt > remoteUpdatedAt)
+      && localCounts.total >= remoteCounts.total;
 
-    if (remoteSnapshot && remoteUpdatedAt >= localUpdatedAt) {
+    if (remoteSnapshot && !shouldUseLocalSnapshot) {
       applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
       lastRemoteHubStateText = JSON.stringify(remoteSnapshot);
-    } else if (localMatchesAccount && localSnapshot) {
+    } else if (shouldUseLocalSnapshot && localSnapshot) {
       applyHubStateSnapshot(localSnapshot, { persistLocal: true });
       persistHubState({ immediate: true });
     }
