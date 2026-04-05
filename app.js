@@ -8805,21 +8805,25 @@ async function syncSessionFromBackend() {
     }
 
     const remoteSnapshot = remoteAccount.hubState && typeof remoteAccount.hubState === 'object' ? remoteAccount.hubState : null;
+    const normalizedRemoteUser = normalizeLookupName(remoteAccount.username);
     const localOwner = normalizeLookupName(localSnapshot?.ownerAccountKey || '');
-    const localMatchesAccount = Boolean(localOwner) && localOwner === normalizeLookupName(remoteAccount.username);
-    const localUpdatedAt = localMatchesAccount ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
+    const localHasOwner = Boolean(localOwner);
+    const localMatchesAccount = localHasOwner && localOwner === normalizedRemoteUser;
+    const localOwnerUnknown = !localHasOwner;
+    const localUpdatedAt = (localMatchesAccount || localOwnerUnknown) ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
     const remoteUpdatedAt = new Date(remoteSnapshot?.updatedAt || 0).getTime();
-    const localCounts = localMatchesAccount ? getHubStateEntityCounts(localSnapshot) : { total: 0 };
+    const localCounts = (localMatchesAccount || localOwnerUnknown) ? getHubStateEntityCounts(localSnapshot) : { total: 0 };
     const remoteCounts = remoteSnapshot ? getHubStateEntityCounts(remoteSnapshot) : { total: 0 };
     const shouldUseLocalSnapshot = localMatchesAccount
       && localCounts.total > 0
       && (localUpdatedAt > remoteUpdatedAt)
       && localCounts.total >= remoteCounts.total;
+    const shouldProtectLocalFromEmptyRemote = localCounts.total > 0 && remoteCounts.total === 0;
 
-    if (remoteSnapshot && !shouldUseLocalSnapshot) {
+    if (remoteSnapshot && !shouldUseLocalSnapshot && !shouldProtectLocalFromEmptyRemote) {
       applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
       lastRemoteHubStateText = JSON.stringify(remoteSnapshot);
-    } else if (shouldUseLocalSnapshot && localSnapshot) {
+    } else if ((shouldUseLocalSnapshot || shouldProtectLocalFromEmptyRemote) && localSnapshot) {
       applyHubStateSnapshot(localSnapshot, { persistLocal: true });
       persistHubState({ immediate: true, allowDuringInit: true });
     }
