@@ -523,6 +523,16 @@ function navigateTo(module) {
 
   navItems.forEach(i => i.classList.toggle('active', i.dataset.module === module));
   pages.forEach(p => p.classList.toggle('active', p.id === `page-${module}`));
+
+  // Fail-safe: never allow the content area to end up with zero visible pages.
+  if (!document.querySelector('.module-page.active')) {
+    const fallbackPage = document.getElementById('page-dashboard') || document.querySelector('.module-page');
+    if (fallbackPage) {
+      fallbackPage.classList.add('active');
+      const fallbackModule = fallbackPage.id.replace(/^page-/, '');
+      navItems.forEach(i => i.classList.toggle('active', i.dataset.module === fallbackModule));
+    }
+  }
   renderDashboard();
 }
 

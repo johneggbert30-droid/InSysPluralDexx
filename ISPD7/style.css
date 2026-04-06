@@ -321,6 +321,7 @@ body {
   animation: fadeIn 0.18s ease;
 }
 .module-page.active { display: flex; }
+.main-content > .module-page.active { display: flex !important; }
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
