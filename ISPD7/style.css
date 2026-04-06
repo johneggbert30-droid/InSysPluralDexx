@@ -53,10 +53,10 @@ html, body {
 }
 
 body {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
   overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow-y: hidden;
   background: var(--bg);
 }
 
@@ -237,12 +237,12 @@ body {
    Layout
    ===================== */
 .layout {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  grid-template-areas: 'sidebar main';
+  display: flex;
+  align-items: stretch;
   margin-top: var(--topbar-h);
-  min-height: calc(100vh - var(--topbar-h));
-  height: auto;
+  min-height: calc(100dvh - var(--topbar-h));
+  height: calc(100dvh - var(--topbar-h));
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -250,19 +250,17 @@ body {
    Sidebar
    ===================== */
 .sidebar {
-  grid-area: sidebar;
   width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border);
-  flex-shrink: 0;
+  flex: 0 0 var(--sidebar-w);
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 8px;
   transition: width var(--transition), padding var(--transition);
-  position: sticky;
+  position: relative;
   top: 0;
-  max-height: calc(100vh - var(--topbar-h));
-  height: calc(100vh - var(--topbar-h));
+  height: 100%;
 }
 
 .sidebar-backdrop {
@@ -311,11 +309,12 @@ body {
    Main Content
    ===================== */
 .main-content {
-  grid-area: main;
-  grid-column: 2;
-  min-height: calc(100vh - var(--topbar-h));
-  height: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
 }
 
@@ -2604,9 +2603,9 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
     margin-left: 0 !important;
     max-width: 100%;
     width: 100%;
-    height: calc(100dvh - var(--topbar-h));
+    height: auto;
     min-height: calc(100dvh - var(--topbar-h));
-    overflow-y: auto;
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
   }
 

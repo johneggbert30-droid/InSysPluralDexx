@@ -54,10 +54,10 @@ html, body {
 }
 
 body {
+  height: 100dvh;
   min-height: 100dvh;
   overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow-y: hidden;
   background: var(--bg);
 }
 
@@ -247,15 +247,14 @@ select {
    Layout
    ===================== */
 .layout {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  grid-template-areas: 'sidebar main';
-  align-items: start;
+  display: flex;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
   margin-top: var(--topbar-h);
   min-height: calc(100dvh - var(--topbar-h));
-  height: auto;
+  height: calc(100dvh - var(--topbar-h));
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -267,23 +266,21 @@ select {
    Sidebar
    ===================== */
 .sidebar {
-  grid-area: sidebar;
   width: 100%;
   max-width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border);
   flex: 0 0 var(--sidebar-w);
-  align-self: start;
+  align-self: stretch;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 12px 8px calc(28px + env(safe-area-inset-bottom, 0px));
   transition: width var(--transition), padding var(--transition), flex-basis var(--transition);
-  position: sticky;
+  position: relative;
   top: 0;
-  max-height: calc(100dvh - var(--topbar-h));
-  height: calc(100dvh - var(--topbar-h));
+  height: 100%;
 }
 
 .sidebar-backdrop {
@@ -332,16 +329,16 @@ select {
    Main Content
    ===================== */
 .main-content {
-  grid-area: main;
-  grid-column: 2;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 100%;
+  width: auto;
+  max-width: none;
   min-width: 0;
-  min-height: calc(100dvh - var(--topbar-h));
-  height: auto;
+  min-height: 0;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
 }
 
@@ -2865,7 +2862,9 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 
   .layout {
     display: block;
+    min-height: calc(100dvh - var(--topbar-h));
     height: auto;
+    overflow: visible;
   }
 
   .topbar {
@@ -2932,9 +2931,9 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
     margin-left: 0 !important;
     max-width: 100%;
     width: 100%;
-    height: calc(100dvh - var(--topbar-h));
+    height: auto;
     min-height: calc(100dvh - var(--topbar-h));
-    overflow-y: auto;
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
   }
 
