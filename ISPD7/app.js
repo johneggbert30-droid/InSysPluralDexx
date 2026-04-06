@@ -5931,7 +5931,8 @@ async function apiRequest(path, options = {}) {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers
+    headers,
+    keepalive: Boolean(options.keepalive)
   });
 
   const data = await response.json().catch(() => ({}));
@@ -6802,13 +6803,129 @@ if (exportDataBtn) {
 if (clearDataBtn) {
   clearDataBtn.addEventListener('click', () => {
     if (!safeConfirm('Clear ALL local hub data? This cannot be undone and will reset the page.')) return;
+    shouldSkipHubSnapshotSave = true;
     localStorage.clear();
     location.reload();
   });
 }
 
+const HUB_SNAPSHOT_STORAGE_KEY = 'ispd7.hub.snapshot.v2';
+let shouldSkipHubSnapshotSave = false;
+
+function replaceObjectContents(target, source) {
+  if (!target || typeof target !== 'object' || Array.isArray(target)) return;
+  Object.keys(target).forEach((key) => delete target[key]);
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+  Object.assign(target, source);
+}
+
+function replaceArrayContents(target, source) {
+  if (!Array.isArray(target)) return;
+  const next = Array.isArray(source) ? source : [];
+  target.splice(0, target.length, ...next);
+}
+
+function getHubSnapshotPayload() {
+  return {
+    version: 2,
+    savedAt: new Date().toISOString(),
+    hubSettings,
+    terminologySettings,
+    privacySettings,
+    notificationSettings,
+    systemProfiles,
+    headmateProfilesByUser,
+    partnerProfiles,
+    itemProfiles,
+    locationProfiles,
+    customTemplates,
+    historyEvents,
+    accounts,
+    loggedInAccountKey,
+    authToken,
+    selectedLightThemeKey,
+    selectedDarkThemeKey,
+    customThemeTokens
+  };
+}
+
+function saveHubSnapshot() {
+  if (shouldSkipHubSnapshotSave) return;
+
+  try {
+    const payload = getHubSnapshotPayload();
+    localStorage.setItem(HUB_SNAPSHOT_STORAGE_KEY, JSON.stringify(payload));
+  } catch (_err) {
+    // Ignore storage quota and private mode failures.
+  }
+}
+
+function loadHubSnapshot() {
+  try {
+    const raw = localStorage.getItem(HUB_SNAPSHOT_STORAGE_KEY);
+    if (!raw) return;
+    const snapshot = JSON.parse(raw);
+    if (!snapshot || typeof snapshot !== 'object') return;
+
+    replaceObjectContents(hubSettings, snapshot.hubSettings);
+    replaceObjectContents(terminologySettings, snapshot.terminologySettings);
+    replaceObjectContents(privacySettings, snapshot.privacySettings);
+    replaceObjectContents(notificationSettings, snapshot.notificationSettings);
+    replaceObjectContents(systemProfiles, snapshot.systemProfiles);
+    replaceObjectContents(headmateProfilesByUser, snapshot.headmateProfilesByUser);
+    replaceObjectContents(partnerProfiles, snapshot.partnerProfiles);
+    replaceObjectContents(itemProfiles, snapshot.itemProfiles);
+    replaceObjectContents(locationProfiles, snapshot.locationProfiles);
+    replaceObjectContents(customTemplates, snapshot.customTemplates);
+    replaceObjectContents(accounts, snapshot.accounts);
+    replaceArrayContents(historyEvents, snapshot.historyEvents);
+
+    if (snapshot.selectedLightThemeKey && LIGHT_THEME_PRESETS[snapshot.selectedLightThemeKey]) {
+      selectedLightThemeKey = snapshot.selectedLightThemeKey;
+    }
+    if (snapshot.selectedDarkThemeKey && DARK_THEME_PRESETS[snapshot.selectedDarkThemeKey]) {
+      selectedDarkThemeKey = snapshot.selectedDarkThemeKey;
+    }
+
+    if (snapshot.customThemeTokens && typeof snapshot.customThemeTokens === 'object') {
+      if (snapshot.customThemeTokens.light && typeof snapshot.customThemeTokens.light === 'object') {
+        customThemeTokens.light = { ...customThemeTokens.light, ...snapshot.customThemeTokens.light };
+      }
+      if (snapshot.customThemeTokens.dark && typeof snapshot.customThemeTokens.dark === 'object') {
+        customThemeTokens.dark = { ...customThemeTokens.dark, ...snapshot.customThemeTokens.dark };
+      }
+    }
+
+    const sessionKey = String(snapshot.loggedInAccountKey || '').trim().toLowerCase();
+    loggedInAccountKey = sessionKey && accounts[sessionKey] ? sessionKey : null;
+    setAuthToken(snapshot.authToken || '');
+  } catch (_err) {
+    // Ignore malformed snapshots and continue with defaults.
+  }
+}
+
+loadHubSnapshot();
+
+setInterval(saveHubSnapshot, 1000);
+window.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') saveHubSnapshot();
+});
+window.addEventListener('pagehide', saveHubSnapshot);
+window.addEventListener('beforeunload', saveHubSnapshot);
+
 applyTerminology();
 applyThemeSelection();
+
+if (typeof renderSystemProfiles === 'function') renderSystemProfiles();
+if (typeof renderPartnersTable === 'function') renderPartnersTable();
+if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+if (typeof renderLocationsTable === 'function') renderLocationsTable();
+if (typeof renderItemTable === 'function') renderItemTable();
+if (typeof renderTemplatesTable === 'function') renderTemplatesTable();
+if (typeof renderHistoryTimeline === 'function') renderHistoryTimeline();
+if (typeof renderAccountModule === 'function') renderAccountModule();
+if (typeof applyHubInfo === 'function') applyHubInfo();
+if (typeof renderDashboard === 'function') renderDashboard();
 
 if (systemEditColorPicker && systemEditColor) {
   systemEditColorPicker.addEventListener('input', () => {
