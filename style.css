@@ -54,10 +54,10 @@ html, body {
 }
 
 body {
-  height: 100dvh;
   min-height: 100dvh;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg);
 }
 
@@ -254,8 +254,8 @@ select {
   width: 100%;
   min-width: 0;
   margin-top: var(--topbar-h);
-  height: calc(100dvh - var(--topbar-h));
-  min-height: 0;
+  min-height: calc(100dvh - var(--topbar-h));
+  height: auto;
   background: var(--bg);
 }
 
@@ -273,16 +273,17 @@ select {
   background: var(--surface);
   border-right: 1px solid var(--border);
   flex: 0 0 var(--sidebar-w);
-  align-self: stretch;
+  align-self: start;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding: 12px 8px calc(28px + env(safe-area-inset-bottom, 0px));
   transition: width var(--transition), padding var(--transition), flex-basis var(--transition);
-  position: relative;
+  position: sticky;
   top: 0;
-  height: 100%;
+  max-height: calc(100dvh - var(--topbar-h));
+  height: calc(100dvh - var(--topbar-h));
 }
 
 .sidebar-backdrop {
@@ -338,10 +339,9 @@ select {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: 100%;
-  min-height: 0;
+  min-height: calc(100dvh - var(--topbar-h));
+  height: auto;
   overflow-x: hidden;
-  overflow-y: auto;
   background: var(--bg);
 }
 

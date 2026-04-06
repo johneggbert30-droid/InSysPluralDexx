@@ -55,7 +55,8 @@ html, body {
 body {
   min-height: 100vh;
   overflow-x: hidden;
-  overflow-y: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg);
 }
 
@@ -240,8 +241,8 @@ body {
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   grid-template-areas: 'sidebar main';
   margin-top: var(--topbar-h);
-  min-height: 0;
-  height: calc(100vh - var(--topbar-h));
+  min-height: calc(100vh - var(--topbar-h));
+  height: auto;
   background: var(--bg);
 }
 
@@ -258,9 +259,10 @@ body {
   overflow-x: hidden;
   padding: 12px 8px;
   transition: width var(--transition), padding var(--transition);
-  position: relative;
+  position: sticky;
   top: 0;
-  height: 100%;
+  max-height: calc(100vh - var(--topbar-h));
+  height: calc(100vh - var(--topbar-h));
 }
 
 .sidebar-backdrop {
@@ -311,8 +313,9 @@ body {
 .main-content {
   grid-area: main;
   grid-column: 2;
-  overflow-y: auto;
   min-height: calc(100vh - var(--topbar-h));
+  height: auto;
+  overflow-x: hidden;
   background: var(--bg);
 }
 
