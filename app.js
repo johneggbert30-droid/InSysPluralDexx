@@ -7195,7 +7195,8 @@ async function apiRequest(path, options = {}) {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers
+    headers,
+    keepalive: Boolean(options.keepalive)
   });
 
   const data = await response.json().catch(() => ({}));
@@ -8001,29 +8002,29 @@ let customThemeTokens = {
 const LIGHT_THEME_PRESETS = {
   'default-light': { ...BASE_LIGHT_THEME, '--accent': '#6c63ff', '--accent-light': '#e7f7f7' },
   'pastel-rainbow': {
-    '--bg': '#fff6fb',
-    '--surface': '#fffdf8',
-    '--surface2': '#f6f8ff',
-    '--border': '#d9defc',
-    '--text': '#2d2340',
-    '--text-muted': '#6f6687',
-    '--accent': '#7c6cff',
-    '--accent-light': '#eee9ff',
-    '--danger': '#ff7ba5',
-    '--success': '#4ec7a5'
+    '--bg': '#fff2f2',
+    '--surface': '#fff8ee',
+    '--surface2': '#fffde2',
+    '--border': '#bde9c8',
+    '--text': '#24326a',
+    '--text-muted': '#6b56a6',
+    '--accent': '#4a8dff',
+    '--accent-light': '#e7f2ff',
+    '--danger': '#ff4f5e',
+    '--success': '#2ccf73'
   },
   'valentine-light': { '--bg': '#fff4f8', '--surface': '#ffffff', '--surface2': '#ffe9f1', '--border': '#f6cfe0', '--text': '#5e2f46', '--text-muted': '#a86586', '--accent': '#f472b6', '--accent-light': '#ffe3f1', '--danger': '#ec4899', '--success': '#fb7185' },
   'neon-rainbow': {
-    '--bg': '#f5f7ff',
-    '--surface': '#ffffff',
-    '--surface2': '#eef4ff',
-    '--border': '#c8d6ff',
-    '--text': '#1d2340',
-    '--text-muted': '#5e6b95',
-    '--accent': '#00b8ff',
-    '--accent-light': '#daf4ff',
-    '--danger': '#ff5db1',
-    '--success': '#2fd6a6'
+    '--bg': '#fff1f1',
+    '--surface': '#fff6eb',
+    '--surface2': '#fffbd5',
+    '--border': '#91e7a9',
+    '--text': '#1b2057',
+    '--text-muted': '#6a5bcb',
+    '--accent': '#00a6ff',
+    '--accent-light': '#d9f2ff',
+    '--danger': '#ff2f58',
+    '--success': '#00cf66'
   },
   'watermelon': { '--bg': '#f6fff7', '--surface': '#ffffff', '--surface2': '#eefbef', '--border': '#cfead3', '--text': '#2f4a3a', '--text-muted': '#678579', '--accent': '#f472b6', '--accent-light': '#ffe5ef', '--danger': '#ef4444', '--success': '#22c55e' },
   'sunset': { '--bg': '#fff4f8', '--surface': '#fffaf5', '--surface2': '#ffe9d6', '--border': '#ffd2c2', '--text': '#5b4a5f', '--text-muted': '#9b7f97', '--accent': '#ff9f68', '--accent-light': '#ffe2c8', '--danger': '#ff8fb1', '--success': '#8ecbff' },
@@ -8044,16 +8045,16 @@ const DARK_THEME_PRESETS = {
   'forest': { '--bg': '#0f1a14', '--surface': '#16251c', '--surface2': '#1d3025', '--border': '#32513f', '--text': '#def3e3', '--text-muted': '#9fc4aa', '--accent': '#22c55e', '--accent-light': '#1b3528', '--danger': '#65a30d', '--success': '#4ade80' },
   'mystic': { '--bg': '#1b1226', '--surface': '#261934', '--surface2': '#342244', '--border': '#53356f', '--text': '#ffe8f7', '--text-muted': '#d3add2', '--accent': '#c084fc', '--accent-light': '#3b2a4f', '--danger': '#f472b6', '--success': '#a78bfa' },
   'dark-rainbow': {
-    '--bg': '#10131f',
-    '--surface': '#171c2c',
-    '--surface2': '#202840',
-    '--border': '#36446d',
-    '--text': '#edf2ff',
-    '--text-muted': '#aab6d6',
-    '--accent': '#6ec8ff',
-    '--accent-light': '#223154',
-    '--danger': '#ff84c1',
-    '--success': '#63e4b2'
+    '--bg': '#170f23',
+    '--surface': '#1f1833',
+    '--surface2': '#1f2740',
+    '--border': '#2f7b55',
+    '--text': '#ffe8b9',
+    '--text-muted': '#ffb16f',
+    '--accent': '#4e8fff',
+    '--accent-light': '#2a2f67',
+    '--danger': '#ff5c4d',
+    '--success': '#40d986'
   },
   'night-glow': { '--bg': '#1F1E2F', '--surface': '#2E3360', '--surface2': '#3d4273', '--border': '#6B79FF', '--text': '#FBEAFF', '--text-muted': '#F295C6', '--accent': '#9EE6CF', '--accent-light': '#2f3a58', '--danger': '#F295C6', '--success': '#9EE6CF' },
   'custom-dark': null
@@ -8688,38 +8689,62 @@ function persistHubState(options = {}) {
   const accountPayload = buildRemoteAccountStatePayload();
   const serializedAccount = JSON.stringify(accountPayload || {});
 
-  writeStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, dump, {
+  let storedSnapshot = null;
+  try {
+    storedSnapshot = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
+  } catch (_err) {
+    storedSnapshot = null;
+  }
+
+  const dumpCounts = getHubStateEntityCounts(dump);
+  const storedCounts = storedSnapshot ? getHubStateEntityCounts(storedSnapshot) : { total: 0 };
+  const dumpOwner = normalizeLookupName(dump.ownerAccountKey || '');
+  const storedOwner = normalizeLookupName(storedSnapshot?.ownerAccountKey || '');
+  const ownersComparable = !storedOwner || !dumpOwner || storedOwner === dumpOwner;
+  const shouldPreserveStoredLocal = ownersComparable
+    && storedCounts.total > 0
+    && (
+      dumpCounts.total === 0
+      || (storedCounts.total > dumpCounts.total && (!isSignedIn() || initialSessionSyncPending))
+    );
+
+  const localSnapshotToKeep = shouldPreserveStoredLocal && storedSnapshot ? storedSnapshot : dump;
+  const serializedLocalSnapshot = shouldPreserveStoredLocal && storedSnapshot ? JSON.stringify(storedSnapshot) : serialized;
+
+  writeStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, localSnapshotToKeep, {
     maxBytes: MAX_SAFE_LOCAL_STATE_BYTES,
     warningMessage: 'Uploaded media made the browser cache too large, so a compact backup was saved to stop data wipes. Use smaller images or image URLs for the most reliable persistence.'
   });
 
-  if (estimateStringBytes(serialized) > MAX_SAFE_LOCAL_STATE_BYTES) {
+  if (estimateStringBytes(serializedLocalSnapshot) > MAX_SAFE_LOCAL_STATE_BYTES) {
     showStorageWarning('Your saved data is getting too large for reliable browser storage. Smaller uploads or pasted image URLs will keep it from being wiped.');
   }
 
   if (options.remote === false || !USE_BACKEND_AUTH || !authToken || !loggedInAccountKey) {
-    return dump;
+    return localSnapshotToKeep;
   }
 
   if (initialSessionSyncPending && !options.allowDuringInit) {
-    return dump;
+    return localSnapshotToKeep;
   }
 
-  const preferredRemoteState = estimateStringBytes(serialized) <= MAX_SAFE_REMOTE_STATE_BYTES
-    ? { value: dump, serialized, compacted: false }
-    : buildStorageSafeClone(dump, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
+  const remoteBaseSnapshot = shouldPreserveStoredLocal && storedSnapshot ? storedSnapshot : dump;
+  const remoteSerialized = shouldPreserveStoredLocal && storedSnapshot ? JSON.stringify(storedSnapshot) : serialized;
+  const preferredRemoteState = estimateStringBytes(remoteSerialized) <= MAX_SAFE_REMOTE_STATE_BYTES
+    ? { value: remoteBaseSnapshot, serialized: remoteSerialized, compacted: false }
+    : buildStorageSafeClone(remoteBaseSnapshot, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
 
   if (preferredRemoteState.serialized === lastRemoteHubStateText && serializedAccount === lastRemoteAccountStateText) {
-    return dump;
+    return localSnapshotToKeep;
   }
 
-  if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
-  remoteHubStateSaveTimer = window.setTimeout(async () => {
+  const flushRemoteState = async () => {
     try {
       let result;
       try {
         result = await apiRequest('/api/me/state', {
           method: 'PUT',
+          keepalive: Boolean(options.immediate && estimateStringBytes(preferredRemoteState.serialized) < 60 * 1024),
           body: JSON.stringify({
             hubState: preferredRemoteState.value,
             account: accountPayload || undefined
@@ -8729,9 +8754,10 @@ function persistHubState(options = {}) {
         const shouldRetryCompact = !preferredRemoteState.compacted && (err?.status === 413 || /too large/i.test(String(err?.message || '')));
         if (!shouldRetryCompact) throw err;
 
-        const compactRemoteState = buildStorageSafeClone(dump, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
+        const compactRemoteState = buildStorageSafeClone(remoteBaseSnapshot, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
         result = await apiRequest('/api/me/state', {
           method: 'PUT',
+          keepalive: Boolean(options.immediate && estimateStringBytes(JSON.stringify(compactRemoteState.value)) < 60 * 1024),
           body: JSON.stringify({
             hubState: compactRemoteState.value,
             account: accountPayload || undefined
@@ -8756,9 +8782,18 @@ function persistHubState(options = {}) {
     } catch (err) {
       showStorageWarning(err?.message || 'The latest save could not reach the backend.');
     }
-  }, options.immediate ? 0 : 850);
+  };
 
-  return dump;
+  if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
+  if (options.immediate) {
+    void flushRemoteState();
+  } else {
+    remoteHubStateSaveTimer = window.setTimeout(() => {
+      void flushRemoteState();
+    }, 850);
+  }
+
+  return localSnapshotToKeep;
 }
 
 function loadHubState() {
@@ -8852,8 +8887,13 @@ function scheduleHubStatePersist() {
   }, true);
 });
 
+window.addEventListener('pagehide', () => {
+  persistHubState({ immediate: true, allowDuringInit: true });
+  persistAccountState();
+});
+
 window.addEventListener('beforeunload', () => {
-  persistHubState({ immediate: true });
+  persistHubState({ immediate: true, allowDuringInit: true });
   persistAccountState();
 });
 
