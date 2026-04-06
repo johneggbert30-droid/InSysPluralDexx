@@ -237,7 +237,9 @@ body {
    Layout
    ===================== */
 .layout {
-  display: flex;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  grid-template-areas: 'sidebar main';
   margin-top: var(--topbar-h);
   min-height: calc(100vh - var(--topbar-h));
   height: auto;
@@ -248,6 +250,7 @@ body {
    Sidebar
    ===================== */
 .sidebar {
+  grid-area: sidebar;
   width: var(--sidebar-w);
   background: var(--surface);
   border-right: 1px solid var(--border);
@@ -307,7 +310,8 @@ body {
    Main Content
    ===================== */
 .main-content {
-  flex: 1;
+  grid-area: main;
+  grid-column: 2;
   overflow-y: auto;
   min-height: calc(100vh - var(--topbar-h));
   background: var(--bg);
