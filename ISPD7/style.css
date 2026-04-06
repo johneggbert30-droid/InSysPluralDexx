@@ -55,8 +55,7 @@ html, body {
 body {
   min-height: 100vh;
   overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow-y: hidden;
   background: var(--bg);
 }
 
@@ -241,8 +240,8 @@ body {
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   grid-template-areas: 'sidebar main';
   margin-top: var(--topbar-h);
-  min-height: calc(100vh - var(--topbar-h));
-  height: auto;
+  min-height: 0;
+  height: calc(100vh - var(--topbar-h));
   background: var(--bg);
 }
 
@@ -2536,6 +2535,12 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
    Responsive
    ===================== */
 @media (max-width: 760px) {
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
   .topbar {
     padding: 0 12px;
     gap: 10px;
