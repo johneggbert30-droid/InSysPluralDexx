@@ -54,6 +54,9 @@ html, body {
 
 body {
   min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   background: var(--bg);
 }
 
@@ -237,6 +240,7 @@ body {
   display: flex;
   margin-top: var(--topbar-h);
   min-height: calc(100vh - var(--topbar-h));
+  height: auto;
   background: var(--bg);
 }
 
