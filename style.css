@@ -2852,6 +2852,10 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
    Responsive
    ===================== */
 @media (max-width: 760px) {
+  body {
+    overflow-y: auto;
+  }
+
   .layout {
     display: block;
     height: auto;
@@ -2921,10 +2925,20 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
     margin-left: 0 !important;
     max-width: 100%;
     width: 100%;
+    height: calc(100dvh - var(--topbar-h));
+    min-height: calc(100dvh - var(--topbar-h));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .module-page {
     padding: 6px 8px 10px;
+    min-height: calc(100dvh - var(--topbar-h));
+  }
+
+  #page-profile .page-body {
+    overflow-y: auto;
+    padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px));
   }
 
   .page-header {

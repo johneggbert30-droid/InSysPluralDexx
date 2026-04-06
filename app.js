@@ -527,8 +527,8 @@ function renderDashboard() {
 }
 
 function navigateTo(module) {
-  if (typeof isSignedIn === 'function' && !isSignedIn() && module !== 'profile') {
-    safeAlert('Please sign in to use the app.');
+  if (typeof isSignedIn === 'function' && !isSignedIn() && module === 'accountFriends') {
+    safeAlert('Please sign in to manage account friends.');
     module = 'profile';
   }
 
@@ -7302,37 +7302,40 @@ function setAppLockState() {
   const locked = !isSignedIn();
   const profileHeader = document.querySelector('#page-profile .page-header h1');
 
-  document.body.classList.toggle('app-locked', locked);
+  document.body.classList.toggle('app-locked', false);
 
   navItems.forEach((item) => {
-    const allowed = !locked || item.dataset.module === 'profile';
+    const requiresAuth = item.dataset.module === 'accountFriends';
+    const allowed = !requiresAuth || !locked;
     item.classList.toggle('nav-item-locked', !allowed);
     item.setAttribute('aria-disabled', String(!allowed));
   });
 
   quickBtns.forEach((btn) => {
-    btn.disabled = locked;
-    btn.classList.toggle('btn-disabled', locked);
+    btn.disabled = false;
+    btn.classList.remove('btn-disabled');
   });
 
   if (globalSearchInput) {
-    globalSearchInput.disabled = locked;
-    globalSearchInput.placeholder = locked ? 'Sign in to use search...' : 'Search...';
+    globalSearchInput.disabled = false;
+    globalSearchInput.placeholder = 'Search...';
   }
 
   if (userSwitcherBtn) {
-    userSwitcherBtn.classList.toggle('disabled', locked);
-    userSwitcherBtn.setAttribute('aria-disabled', String(locked));
+    userSwitcherBtn.classList.remove('disabled');
+    userSwitcherBtn.setAttribute('aria-disabled', 'false');
   }
 
   if (profileHeader) {
-    profileHeader.textContent = locked ? 'Sign In Required' : 'Member Profile';
+    profileHeader.textContent = locked ? 'Sign In to Sync' : 'Member Profile';
   }
 
   if (locked) {
     userDropdown?.classList.remove('open');
-    navItems.forEach((item) => item.classList.toggle('active', item.dataset.module === 'profile'));
-    pages.forEach((page) => page.classList.toggle('active', page.id === 'page-profile'));
+    if (!document.querySelector('.module-page.active')) {
+      const fallbackPage = document.getElementById('page-dashboard') || document.querySelector('.module-page');
+      if (fallbackPage) fallbackPage.classList.add('active');
+    }
   }
 }
 

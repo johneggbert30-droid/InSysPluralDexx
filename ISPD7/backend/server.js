@@ -10,8 +10,9 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-before-deploying';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
+const BACKUP_DATA_FILE = path.join(DATA_DIR, 'users.backup.json');
 
 app.use(cors({
   origin: FRONTEND_ORIGIN
@@ -34,6 +35,15 @@ function readStore() {
   try {
     return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
   } catch (_err) {
+    try {
+      if (fs.existsSync(BACKUP_DATA_FILE)) {
+        const backupStore = JSON.parse(fs.readFileSync(BACKUP_DATA_FILE, 'utf8'));
+        fs.writeFileSync(DATA_FILE, JSON.stringify(backupStore, null, 2));
+        return backupStore;
+      }
+    } catch (_backupErr) {
+      // Ignore backup read failures and fall back to an empty store.
+    }
     return { users: {} };
   }
 }
@@ -41,6 +51,7 @@ function readStore() {
 function writeStore(store) {
   ensureDataFile();
   fs.writeFileSync(DATA_FILE, JSON.stringify(store, null, 2));
+  fs.writeFileSync(BACKUP_DATA_FILE, JSON.stringify(store, null, 2));
 }
 
 function sanitizeUser(user) {

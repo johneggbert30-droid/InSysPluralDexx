@@ -2,10 +2,14 @@ services:
   - type: web
     name: ispd7-backend
     runtime: node
-    rootDir: ISPD7/backend
+    rootDir: backend
     buildCommand: npm install
     startCommand: npm start
     plan: free
+    disk:
+      name: ispd7-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -13,3 +17,5 @@ services:
         generateValue: true
       - key: FRONTEND_ORIGIN
         sync: false
+      - key: DATA_DIR
+        value: /var/data/ispd7

@@ -10,8 +10,9 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-before-deploying';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
+const BACKUP_DATA_FILE = path.join(DATA_DIR, 'users.backup.json');
 const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 14 * 1024 * 1024);
 const MAX_SYSTEMS_PER_ACCOUNT = Number(process.env.MAX_SYSTEMS_PER_ACCOUNT || 10);
 const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT || 2000);
@@ -96,6 +97,16 @@ function readStore() {
     }
     return safeStore;
   } catch (_err) {
+    try {
+      if (fs.existsSync(BACKUP_DATA_FILE)) {
+        const backupParsed = JSON.parse(fs.readFileSync(BACKUP_DATA_FILE, 'utf8'));
+        const { safeStore } = sanitizeStore(backupParsed);
+        fs.writeFileSync(DATA_FILE, JSON.stringify(safeStore, null, 2));
+        return safeStore;
+      }
+    } catch (_backupErr) {
+      // Ignore backup read failures and fall back to empty store.
+    }
     return { users: {} };
   }
 }
@@ -104,6 +115,7 @@ function writeStore(store) {
   ensureDataFile();
   const { safeStore } = sanitizeStore(store);
   fs.writeFileSync(DATA_FILE, JSON.stringify(safeStore, null, 2));
+  fs.writeFileSync(BACKUP_DATA_FILE, JSON.stringify(safeStore, null, 2));
 }
 
 const TRUST_LEVELS = ['public', 'friends', 'trusted', 'partners', 'private'];
