@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
@@ -10,6 +11,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-before-deploying';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
+const DATABASE_URL = String(process.env.DATABASE_URL || '').trim();
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
 const DATA_FILE = path.join(DATA_DIR, 'users.json');
 const BACKUP_DATA_FILE = path.join(DATA_DIR, 'users.backup.json');
@@ -17,6 +19,14 @@ const MAX_HUB_STATE_BYTES = Number(process.env.MAX_HUB_STATE_BYTES || 14 * 1024 
 const MAX_SYSTEMS_PER_ACCOUNT = Number(process.env.MAX_SYSTEMS_PER_ACCOUNT || 10);
 const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT || 2000);
 const REMOVED_ACCOUNT_USERNAMES = new Set(['pandorasbox']);
+const STORE_KEY = 'users';
+const DEFAULT_STORE = { users: {} };
+const pool = DATABASE_URL
+  ? new Pool({
+    connectionString: DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  })
+  : null;
 
 app.use(cors({
   origin: FRONTEND_ORIGIN
@@ -34,7 +44,7 @@ function ensureDataFile() {
   }
 }
 
-function sanitizeStore(store = { users: {} }) {
+function sanitizeStore(store = DEFAULT_STORE) {
   const safeStore = store && typeof store === 'object' ? store : { users: {} };
   if (!safeStore.users || typeof safeStore.users !== 'object' || Array.isArray(safeStore.users)) {
     safeStore.users = {};
@@ -87,7 +97,36 @@ function sanitizeStore(store = { users: {} }) {
   return { safeStore, changed };
 }
 
-function readStore() {
+async function initDatabaseStore() {
+  if (!pool) return;
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_store (
+      store_key TEXT PRIMARY KEY,
+      payload JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(
+    `INSERT INTO app_store (store_key, payload)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (store_key) DO NOTHING`,
+    [STORE_KEY, JSON.stringify(DEFAULT_STORE)]
+  );
+}
+
+async function readStore() {
+  if (pool) {
+    const result = await pool.query('SELECT payload FROM app_store WHERE store_key = $1', [STORE_KEY]);
+    const parsed = result.rows[0]?.payload || DEFAULT_STORE;
+    const { safeStore, changed } = sanitizeStore(cloneJson(parsed, DEFAULT_STORE));
+    if (changed) {
+      await writeStore(safeStore);
+    }
+    return safeStore;
+  }
+
   ensureDataFile();
   try {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
@@ -111,7 +150,19 @@ function readStore() {
   }
 }
 
-function writeStore(store) {
+async function writeStore(store) {
+  if (pool) {
+    const { safeStore } = sanitizeStore(store);
+    await pool.query(
+      `INSERT INTO app_store (store_key, payload, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (store_key)
+       DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+      [STORE_KEY, JSON.stringify(safeStore)]
+    );
+    return;
+  }
+
   ensureDataFile();
   const { safeStore } = sanitizeStore(store);
   fs.writeFileSync(DATA_FILE, JSON.stringify(safeStore, null, 2));
@@ -260,7 +311,7 @@ function authRequired(req, res, next) {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'ispd7-backend' });
+  res.json({ ok: true, service: 'ispd7-backend', persistence: pool ? 'postgres' : 'file' });
 });
 
 app.post('/api/auth/signup', async (req, res) => {
@@ -277,7 +328,7 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
 
-  const store = readStore();
+  const store = await readStore();
   if (store.users[username]) {
     return res.status(409).json({ error: 'That username is already taken.' });
   }
@@ -289,7 +340,7 @@ app.post('/api/auth/signup', async (req, res) => {
   };
 
   store.users[username] = user;
-  writeStore(store);
+  await writeStore(store);
 
   return res.status(201).json({
     token: createToken(username),
@@ -300,7 +351,7 @@ app.post('/api/auth/signup', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const username = String(req.body?.username || '').trim().toLowerCase();
   const password = String(req.body?.password || '');
-  const store = readStore();
+  const store = await readStore();
   const user = store.users[username];
 
   if (!/^[a-z0-9_-]{2,32}$/.test(username)) {
@@ -322,8 +373,8 @@ app.post('/api/auth/login', async (req, res) => {
   });
 });
 
-app.get('/api/accounts', authRequired, (req, res) => {
-  const store = readStore();
+app.get('/api/accounts', authRequired, async (req, res) => {
+  const store = await readStore();
   const viewerUsername = req.auth.username;
   const viewer = store.users[viewerUsername];
 
@@ -350,8 +401,8 @@ app.get('/api/accounts', authRequired, (req, res) => {
   return res.json({ accounts });
 });
 
-app.get('/api/me', authRequired, (req, res) => {
-  const store = readStore();
+app.get('/api/me', authRequired, async (req, res) => {
+  const store = await readStore();
   const user = store.users[req.auth.username];
 
   if (!user) {
@@ -362,7 +413,7 @@ app.get('/api/me', authRequired, (req, res) => {
 });
 
 app.put('/api/me', authRequired, async (req, res) => {
-  const store = readStore();
+  const store = await readStore();
   const currentUsername = req.auth.username;
   const currentUser = store.users[currentUsername];
 
@@ -411,7 +462,7 @@ app.put('/api/me', authRequired, async (req, res) => {
     delete store.users[currentUsername];
   }
   store.users[requestedUsername] = updatedUser;
-  writeStore(store);
+  await writeStore(store);
 
   return res.json({
     token: createToken(requestedUsername),
@@ -419,8 +470,8 @@ app.put('/api/me', authRequired, async (req, res) => {
   });
 });
 
-app.get('/api/me/state', authRequired, (req, res) => {
-  const store = readStore();
+app.get('/api/me/state', authRequired, async (req, res) => {
+  const store = await readStore();
   const user = store.users[req.auth.username];
 
   if (!user) {
@@ -430,8 +481,8 @@ app.get('/api/me/state', authRequired, (req, res) => {
   return res.json({ hubState: normalizeHubState(user.hubState || {}) });
 });
 
-app.put('/api/me/state', authRequired, (req, res) => {
-  const store = readStore();
+app.put('/api/me/state', authRequired, async (req, res) => {
+  const store = await readStore();
   const currentUser = store.users[req.auth.username];
 
   if (!currentUser) {
@@ -476,7 +527,7 @@ app.put('/api/me/state', authRequired, (req, res) => {
   currentUser.hubState.updatedAt = new Date().toISOString();
   currentUser.updatedAt = new Date().toISOString();
   store.users[req.auth.username] = currentUser;
-  writeStore(store);
+  await writeStore(store);
 
   return res.json({
     ok: true,
@@ -486,8 +537,8 @@ app.put('/api/me/state', authRequired, (req, res) => {
   });
 });
 
-app.post('/api/friends', authRequired, (req, res) => {
-  const store = readStore();
+app.post('/api/friends', authRequired, async (req, res) => {
+  const store = await readStore();
   const currentUsername = req.auth.username;
   const friendUsername = String(req.body?.username || '').trim().toLowerCase();
   const trustLevel = normalizeTrustLevel(req.body?.trustLevel, 'friends');
@@ -516,7 +567,7 @@ app.post('/api/friends', authRequired, (req, res) => {
   friendUser.updatedAt = new Date().toISOString();
   store.users[currentUsername] = currentUser;
   store.users[friendUsername] = friendUser;
-  writeStore(store);
+  await writeStore(store);
 
   return res.json({
     account: sanitizeUser(currentUser, store, currentUsername),
@@ -524,8 +575,8 @@ app.post('/api/friends', authRequired, (req, res) => {
   });
 });
 
-app.delete('/api/friends/:username', authRequired, (req, res) => {
-  const store = readStore();
+app.delete('/api/friends/:username', authRequired, async (req, res) => {
+  const store = await readStore();
   const currentUsername = req.auth.username;
   const friendUsername = String(req.params?.username || '').trim().toLowerCase();
   const currentUser = store.users[currentUsername];
@@ -541,15 +592,15 @@ app.delete('/api/friends/:username', authRequired, (req, res) => {
   if (friendUser) friendUser.updatedAt = new Date().toISOString();
   store.users[currentUsername] = currentUser;
   if (friendUser) store.users[friendUsername] = friendUser;
-  writeStore(store);
+  await writeStore(store);
 
   return res.json({
     account: sanitizeUser(currentUser, store, currentUsername)
   });
 });
 
-app.delete('/api/me', authRequired, (req, res) => {
-  const store = readStore();
+app.delete('/api/me', authRequired, async (req, res) => {
+  const store = await readStore();
   const currentUsername = req.auth.username;
 
   if (!store.users[currentUsername]) {
@@ -562,10 +613,20 @@ app.delete('/api/me', authRequired, (req, res) => {
     }
   });
   delete store.users[currentUsername];
-  writeStore(store);
+  await writeStore(store);
   return res.json({ ok: true });
 });
 
-app.listen(PORT, () => {
-  console.log(`ISPD7 backend running on http://localhost:${PORT}`);
-});
+async function startServer() {
+  try {
+    await initDatabaseStore();
+    app.listen(PORT, () => {
+      console.log(`ISPD7 backend running on http://localhost:${PORT} using ${pool ? 'postgres' : 'file'} persistence`);
+    });
+  } catch (error) {
+    console.error('Failed to initialize backend persistence.', error);
+    process.exit(1);
+  }
+}
+
+startServer();

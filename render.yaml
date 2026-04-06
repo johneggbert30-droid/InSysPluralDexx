@@ -15,7 +15,16 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: ispd7-db
+          property: connectionString
       - key: FRONTEND_ORIGIN
         sync: false
       - key: DATA_DIR
         value: /var/data/ispd7
+
+databases:
+  - name: ispd7-db
+    databaseName: ispd7
+    user: ispd7
