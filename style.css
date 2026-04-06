@@ -280,9 +280,9 @@ select {
   overscroll-behavior: contain;
   padding: 12px 8px calc(28px + env(safe-area-inset-bottom, 0px));
   transition: width var(--transition), padding var(--transition), flex-basis var(--transition);
-  position: sticky;
-  top: var(--topbar-h);
-  height: calc(100dvh - var(--topbar-h));
+  position: relative;
+  top: 0;
+  height: 100%;
 }
 
 .sidebar-backdrop {

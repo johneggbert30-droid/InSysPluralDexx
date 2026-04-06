@@ -258,9 +258,9 @@ body {
   overflow-x: hidden;
   padding: 12px 8px;
   transition: width var(--transition), padding var(--transition);
-  position: sticky;
-  top: var(--topbar-h);
-  height: calc(100vh - var(--topbar-h));
+  position: relative;
+  top: 0;
+  height: 100%;
 }
 
 .sidebar-backdrop {
