@@ -3128,6 +3128,7 @@ function getModulePrivacyLevel(module) {
 
 function canAccessModule(module) {
   if (typeof isModuleEnabled === 'function' && !isModuleEnabled(module)) return false;
+  if (!USE_BACKEND_AUTH || !isSignedIn()) return true;
   return canViewField(getModulePrivacyLevel(module), getViewerTrustLevel());
 }
 

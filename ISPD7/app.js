@@ -2660,6 +2660,7 @@ function getModulePrivacyLevel(module) {
 }
 
 function canAccessModule(module) {
+  if (!USE_BACKEND_AUTH || !isSignedIn()) return true;
   return canViewField(getModulePrivacyLevel(module), getViewerTrustLevel());
 }
 
