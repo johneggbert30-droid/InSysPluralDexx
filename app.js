@@ -579,7 +579,7 @@ const sidebar = document.getElementById('sidebar');
 const sidebarToggle = document.getElementById('sidebarToggle');
 const compactSidebarSwitch = document.getElementById('compactSidebar');
 const sidebarBackdrop = document.getElementById('sidebarBackdrop');
-const mobileQuery = window.matchMedia('(max-width: 900px)');
+const mobileQuery = window.matchMedia('(max-width: 760px)');
 
 function isMobileScreen() {
   return mobileQuery.matches;
