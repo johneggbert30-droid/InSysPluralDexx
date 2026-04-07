@@ -1906,6 +1906,8 @@ const partnerEditorFields = document.getElementById('partnerEditorFields');
 const partnerHeadmatesList = document.getElementById('partnerHeadmatesList');
 const partnersDiagramCanvas = document.getElementById('partnersDiagramCanvas');
 const partnersDiagramRefreshBtn = document.getElementById('partnersDiagramRefreshBtn');
+const addInnerRelationshipBtn = document.getElementById('addInnerRelationshipBtn');
+const innerRelationshipList = document.getElementById('innerRelationshipList');
 
 const partnerFieldSchema = [
   { key: 'name', label: 'Name' },
@@ -2058,6 +2060,101 @@ function parsePartnerHeadmateEntries(profile) {
       ? { raw: entry, name: match[1].trim(), role: match[2].trim() }
       : { raw: entry, name: entry.trim(), role: 'Headmate' };
   });
+}
+
+function getInnerSystemRelationshipEntries(userName = getActiveUserName()) {
+  if (!userName || userName === NO_SYSTEM_USER) return [];
+
+  const profiles = ensureHeadmateStoreForUser(userName);
+  const records = Object.entries(profiles || {});
+  const relationships = [];
+  const seenPairs = new Set();
+
+  records.forEach(([key, headmate]) => {
+    const headmateName = String(headmate?.name || key).trim();
+    if (!headmateName) return;
+
+    parseLinkedTextList(headmate?.partners).forEach((partnerName) => {
+      const match = records.find(([candidateKey, candidateProfile]) => (
+        candidateKey !== key
+        && (
+          normalizeLookupName(candidateKey) === normalizeLookupName(partnerName)
+          || normalizeLookupName(candidateProfile?.name) === normalizeLookupName(partnerName)
+        )
+      ));
+
+      if (!match) return;
+
+      const [otherKey, otherHeadmate] = match;
+      const pairKey = [key, otherKey].sort().join('|');
+      if (seenPairs.has(pairKey)) return;
+      seenPairs.add(pairKey);
+
+      const statuses = [headmate?.partnershipStatus, otherHeadmate?.partnershipStatus]
+        .map((value) => String(value || '').trim())
+        .filter((value) => value && !['not set', 'none', 'n/a', 'single', 'unpartnered'].includes(value.toLowerCase()));
+
+      relationships.push({
+        pairKey,
+        left: {
+          key,
+          name: headmateName,
+          photo: headmate?.profilePhoto || headmateName[0]?.toUpperCase() || 'H',
+          color: headmate?.color || '#6c63ff',
+          meta: headmate?.mainRole || headmate?.pronouns || 'Headmate'
+        },
+        right: {
+          key: otherKey,
+          name: String(otherHeadmate?.name || otherKey).trim() || otherKey,
+          photo: otherHeadmate?.profilePhoto || String(otherHeadmate?.name || otherKey)[0]?.toUpperCase() || 'H',
+          color: otherHeadmate?.color || '#ff6584',
+          meta: otherHeadmate?.mainRole || otherHeadmate?.pronouns || 'Headmate'
+        },
+        status: statuses.length > 1 && statuses[0] !== statuses[1]
+          ? `${statuses[0]} / ${statuses[1]}`
+          : (statuses[0] || 'Linked relationship')
+      });
+    });
+  });
+
+  return relationships.sort((a, b) => `${a.left.name} ${a.right.name}`.localeCompare(`${b.left.name} ${b.right.name}`));
+}
+
+function renderInnerSystemRelationships() {
+  if (!innerRelationshipList) return;
+
+  const activeUser = getActiveUserName();
+  if (!activeUser || activeUser === NO_SYSTEM_USER) {
+    innerRelationshipList.innerHTML = '<p class="headmate-hint" style="margin:8px 0">Select or create a system first to track inner-system relationships here.</p>';
+    return;
+  }
+
+  const entries = getInnerSystemRelationshipEntries(activeUser);
+  if (!entries.length) {
+    innerRelationshipList.innerHTML = `<p class="headmate-hint" style="margin:8px 0">No inner-system relationships linked for ${escapeHtml(activeUser)} yet. Use “Link Headmates” to add one.</p>`;
+    return;
+  }
+
+  innerRelationshipList.innerHTML = entries.map((entry) => `
+    <article class="account-friend-card" data-inner-relationship="${escapeHtml(entry.pairKey)}">
+      <div class="account-friend-main">
+        <div style="display:flex;gap:.35rem;align-items:center">
+          ${renderAvatarMarkup(entry.left.photo, entry.left.name[0]?.toUpperCase() || 'H', entry.left.color || '#6c63ff', 'sm')}
+          ${renderAvatarMarkup(entry.right.photo, entry.right.name[0]?.toUpperCase() || 'H', entry.right.color || '#ff6584', 'sm')}
+        </div>
+        <div class="account-friend-meta">
+          <strong>${escapeHtml(entry.left.name)} ↔ ${escapeHtml(entry.right.name)}</strong>
+          <span>${escapeHtml(entry.status)} • In-system relationship</span>
+          <span>${escapeHtml(entry.left.meta)} / ${escapeHtml(entry.right.meta)}</span>
+        </div>
+      </div>
+      <div class="account-friend-actions">
+        <button class="btn-sm" type="button" data-open-inner-headmate="${escapeHtml(entry.left.key)}">Open ${escapeHtml(entry.left.name)}</button>
+        <button class="btn-sm" type="button" data-open-inner-headmate="${escapeHtml(entry.right.key)}">Open ${escapeHtml(entry.right.name)}</button>
+        <button class="btn-sm subsystem-unlink-btn" type="button" data-remove-inner-relationship="${escapeHtml(entry.pairKey)}">Remove</button>
+      </div>
+    </article>
+  `).join('');
 }
 
 function renderPartnerHeadmates(profile) {
@@ -2360,6 +2457,7 @@ function renderPartnersTable() {
   }
 
   renderPartnersDiagram();
+  renderInnerSystemRelationships();
 }
 
 if (partnersTableBody) {
@@ -2509,6 +2607,101 @@ if (linkPartnerProfileBtn) {
       renderPartnersTable();
       renderPartnerProfile(partner);
     }
+  });
+}
+
+if (addInnerRelationshipBtn) {
+  addInnerRelationshipBtn.addEventListener('click', () => {
+    const profiles = getActiveHeadmateProfiles();
+    const headmateNames = Object.values(profiles || {})
+      .map((profile) => String(profile?.name || '').trim())
+      .filter(Boolean);
+
+    if (headmateNames.length < 2) {
+      safeAlert('Add at least two headmates first so there is a relationship to track.');
+      return;
+    }
+
+    const raw = safePrompt(
+      `Add an inner-system relationship as Headmate A|Headmate B|Status. Available: ${headmateNames.join(', ')}`,
+      `${headmateNames[0]}|${headmateNames[1]}|Partnered`
+    );
+    if (!raw || !raw.trim()) return;
+
+    const [rawFirst, rawSecond, rawStatus] = raw.split('|').map((part) => (part || '').trim());
+    if (!rawFirst || !rawSecond) {
+      safeAlert('Use the format Headmate A|Headmate B|Status.');
+      return;
+    }
+
+    const firstKey = findHeadmateKeyByName(rawFirst);
+    const secondKey = findHeadmateKeyByName(rawSecond);
+    if (!firstKey || !secondKey) {
+      safeAlert('Both names need to match existing headmates in the active system.');
+      return;
+    }
+    if (firstKey === secondKey) {
+      safeAlert('Choose two different headmates.');
+      return;
+    }
+
+    const first = profiles[firstKey];
+    const second = profiles[secondKey];
+    const status = rawStatus || 'Partnered';
+
+    first.partners = appendCommaLinkValue(first.partners, second.name || secondKey);
+    second.partners = appendCommaLinkValue(second.partners, first.name || firstKey);
+
+    if (rawStatus || /^(not set|none|n\/a|single|unpartnered)$/i.test(String(first.partnershipStatus || '').trim())) {
+      first.partnershipStatus = status;
+    }
+    if (rawStatus || /^(not set|none|n\/a|single|unpartnered)$/i.test(String(second.partnershipStatus || '').trim())) {
+      second.partnershipStatus = status;
+    }
+
+    renderHeadmatesTable();
+    renderPartnersTable();
+    if (selectedHeadmateKey === firstKey) renderHeadmateProfile(first);
+    if (selectedHeadmateKey === secondKey) renderHeadmateProfile(second);
+    safeAlert(`Linked ${first.name || firstKey} and ${second.name || secondKey} in the Partners tab.`);
+  });
+}
+
+if (innerRelationshipList) {
+  innerRelationshipList.addEventListener('click', (event) => {
+    const openBtn = event.target.closest('[data-open-inner-headmate]');
+    if (openBtn) {
+      openProfileFromLink('parts', openBtn.dataset.openInnerHeadmate || '');
+      return;
+    }
+
+    const removeBtn = event.target.closest('[data-remove-inner-relationship]');
+    if (!removeBtn) return;
+
+    const [firstKey, secondKey] = String(removeBtn.dataset.removeInnerRelationship || '').split('|');
+    const profiles = getActiveHeadmateProfiles();
+    const first = profiles[firstKey];
+    const second = profiles[secondKey];
+    if (!first || !second) return;
+
+    if (!safeConfirm(`Remove the inner-system relationship between ${first.name || firstKey} and ${second.name || secondKey}?`)) {
+      return;
+    }
+
+    first.partners = removeCommaLinkValue(first.partners, second.name || secondKey);
+    second.partners = removeCommaLinkValue(second.partners, first.name || firstKey);
+
+    if (!parseLinkedTextList(first.partners).length && /partner|dating|married|romantic|qpr/i.test(String(first.partnershipStatus || ''))) {
+      first.partnershipStatus = 'Single';
+    }
+    if (!parseLinkedTextList(second.partners).length && /partner|dating|married|romantic|qpr/i.test(String(second.partnershipStatus || ''))) {
+      second.partnershipStatus = 'Single';
+    }
+
+    renderHeadmatesTable();
+    renderPartnersTable();
+    if (selectedHeadmateKey === firstKey) renderHeadmateProfile(first);
+    if (selectedHeadmateKey === secondKey) renderHeadmateProfile(second);
   });
 }
 

@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>DID System Hub</title>
-  <link rel="stylesheet" href="style.css?v=20260407k" />
+  <link rel="stylesheet" href="style.css?v=20260407l" />
 </head>
 <body>
 
@@ -332,13 +332,23 @@
             <thead><tr><th>ID</th><th>Partner</th><th>Primary Type</th></tr></thead>
             <tbody id="partnersTableBody"></tbody>
           </table>
-          <p class="headmate-hint">Global partner tracker with multiple relationship types. This list is not per-user.</p>
+          <p class="headmate-hint">Global partner tracker with multiple relationship types, plus inner-system relationships for the active system.</p>
           <section class="partners-diagram" id="partnersDiagramPanel">
             <div class="partners-diagram-head">
               <h3>Relationship Diagram</h3>
               <button class="btn-sm" id="partnersDiagramRefreshBtn" type="button">Refresh Diagram</button>
             </div>
             <div class="partners-diagram-canvas" id="partnersDiagramCanvas"></div>
+          </section>
+          <section class="subsystem-hub" id="innerRelationshipsHub">
+            <div class="subsystem-hub-header">
+              <div>
+                <h3>Inner-System Relationships</h3>
+                <p class="headmate-hint">Track relationships between your own headmates here for the active system.</p>
+              </div>
+              <button class="btn-sm" id="addInnerRelationshipBtn" type="button">+ Link Headmates</button>
+            </div>
+            <div class="subsystem-hub-list" id="innerRelationshipList"></div>
           </section>
           <section class="headmate-profile" id="partnerProfile" hidden>
             <div class="headmate-profile-banner" id="partnerBanner">
@@ -1102,7 +1112,7 @@
     </main>
   </div>
 
-  <script src="config.js?v=20260407k"></script>
-  <script src="app.js?v=20260407k"></script>
+  <script src="config.js?v=20260407l"></script>
+  <script src="app.js?v=20260407l"></script>
 </body>
 </html>
