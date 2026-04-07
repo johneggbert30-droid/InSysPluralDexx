@@ -9050,7 +9050,7 @@ function loadHubState() {
     if (USE_BACKEND_AUTH) {
       const snapshotOwner = normalizeLookupName(saved.ownerAccountKey || '');
       const activeOwner = normalizeLookupName(loggedInAccountKey || '');
-      if (!snapshotOwner || !activeOwner || snapshotOwner !== activeOwner) return;
+      if (snapshotOwner && activeOwner && snapshotOwner !== activeOwner) return;
     }
 
     applyHubStateSnapshot(saved);
