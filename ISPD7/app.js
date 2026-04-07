@@ -4898,6 +4898,7 @@ if (saveHeadmateBtn) {
     if (headmateEditor) headmateEditor.hidden = true;
 
     renderHeadmatesTable();
+    if (typeof renderChatSidebar === 'function') renderChatSidebar();
     renderHeadmateProfile(profile);
   });
 }
@@ -4920,6 +4921,7 @@ if (deleteHeadmateBtn) {
     if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
     headmateProfilePanel.hidden = true;
     renderHeadmatesTable();
+    if (typeof renderChatSidebar === 'function') renderChatSidebar();
   });
 }
 
@@ -4971,6 +4973,7 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
 
     if (addedCount > 0) {
       renderHeadmatesTable();
+      if (typeof renderChatSidebar === 'function') renderChatSidebar();
       safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}${skippedCount ? `, skipped ${skippedCount} because this account can only hold ${MAX_HEADMATES_PER_ACCOUNT} total.` : '.'}`);
     }
   });
@@ -7740,6 +7743,7 @@ function renderAccountModule() {
   }
 
   renderMessagesModule();
+  if (typeof renderChatSidebar === 'function') renderChatSidebar();
   setAppLockState();
   renderDashboard();
 }
@@ -8771,6 +8775,7 @@ function applyHubStateSnapshot(saved = {}, options = {}) {
 
   if (typeof renderSystemProfiles === 'function') renderSystemProfiles();
   if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+  if (typeof renderChatSidebar === 'function') renderChatSidebar();
   if (typeof renderPartnersTable === 'function') renderPartnersTable();
   if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
   if (typeof renderItemsTable === 'function') renderItemsTable(itemsSearch?.value || '');

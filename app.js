@@ -28,6 +28,57 @@ const tagCloud = document.getElementById('tagCloud');
 const tagResultsGrid = document.getElementById('tagResultsGrid');
 let activeTagFilter = 'all';
 
+function repairSavedCriticalTabState() {
+  try {
+    const criticalModules = ['chat', 'messages', 'health', 'switchboard', 'gallery', 'templates', 'calendar', 'notifications', 'profile', 'settings'];
+    const storageKeys = ['ispd7.hub.state.v1', 'ispd7.hub.state.backup.v1'];
+
+    storageKeys.forEach((key) => {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') return;
+
+      data.moduleVisibilitySettings = { ...(data.moduleVisibilitySettings || {}) };
+      criticalModules.forEach((name) => {
+        data.moduleVisibilitySettings[name] = true;
+      });
+
+      data.privacySettings = {
+        ...(data.privacySettings || {}),
+        healthVisible: true,
+        historyVisible: true,
+        locationsVisible: true,
+        journalVisible: true,
+        partnersVisible: true
+      };
+
+      localStorage.setItem(key, JSON.stringify(data));
+    });
+  } catch (_err) {
+    // Ignore malformed saved state during reset.
+  }
+}
+
+function applyUrlResetIfRequested() {
+  if (typeof window === 'undefined' || !window.location) return;
+
+  const params = new URLSearchParams(window.location.search || '');
+  if (params.get('reset') !== '1') return;
+
+  repairSavedCriticalTabState();
+  params.delete('reset');
+
+  if (window.history && typeof window.history.replaceState === 'function') {
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+}
+
+applyUrlResetIfRequested();
+
 const APP_CONFIG = window.APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
 const USE_BACKEND_AUTH = Boolean(APP_CONFIG.useBackendAuth && API_BASE_URL);
@@ -544,8 +595,45 @@ function navigateTo(module) {
 
   navItems.forEach(i => i.classList.toggle('active', i.dataset.module === module));
   pages.forEach(p => p.classList.toggle('active', p.id === `page-${module}`));
-  if (mainContent) mainContent.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+
+  const activePage = document.getElementById(`page-${module}`) || document.querySelector('.module-page.active');
+  if (mainContent) {
+    mainContent.scrollTop = 0;
+    if (typeof mainContent.scrollTo === 'function') mainContent.scrollTo(0, 0);
+  }
+  if (typeof document !== 'undefined') {
+    document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+  }
+  if (activePage && typeof activePage.scrollIntoView === 'function') {
+    try {
+      activePage.scrollIntoView({ block: 'start', inline: 'nearest' });
+    } catch (_err) {
+      activePage.scrollIntoView();
+    }
+  }
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo(0, 0);
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => {
+      if (mainContent) mainContent.scrollTop = 0;
+      if (typeof document !== 'undefined') {
+        document.documentElement.scrollTop = 0;
+        if (document.body) document.body.scrollTop = 0;
+      }
+    });
+  }
+  if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+    window.setTimeout(() => {
+      if (mainContent) mainContent.scrollTop = 0;
+      if (activePage && typeof activePage.scrollIntoView === 'function') {
+        try {
+          activePage.scrollIntoView({ block: 'start', inline: 'nearest' });
+        } catch (_err) {
+          activePage.scrollIntoView();
+        }
+      }
+    }, 0);
+  }
   // Fail-safe: never allow the content area to end up with zero visible pages.
   if (!document.querySelector('.module-page.active')) {
     const fallbackPage = document.getElementById('page-dashboard') || document.querySelector('.module-page');
@@ -3128,7 +3216,7 @@ function getModulePrivacyLevel(module) {
 
 function canAccessModule(module) {
   if (typeof isModuleEnabled === 'function' && !isModuleEnabled(module)) return false;
-  if (!USE_BACKEND_AUTH || !isSignedIn()) return true;
+  if (!USE_BACKEND_AUTH || typeof isSignedIn !== 'function' || !isSignedIn()) return true;
   return canViewField(getModulePrivacyLevel(module), getViewerTrustLevel());
 }
 
@@ -4810,6 +4898,7 @@ if (saveHeadmateBtn) {
     if (headmateEditor) headmateEditor.hidden = true;
 
     renderHeadmatesTable();
+    if (typeof renderChatSidebar === 'function') renderChatSidebar();
     renderHeadmateProfile(profile);
   });
 }
@@ -4832,6 +4921,7 @@ if (deleteHeadmateBtn) {
     if (saveHeadmateBtn) saveHeadmateBtn.disabled = true;
     headmateProfilePanel.hidden = true;
     renderHeadmatesTable();
+    if (typeof renderChatSidebar === 'function') renderChatSidebar();
   });
 }
 
@@ -4883,6 +4973,7 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
 
     if (addedCount > 0) {
       renderHeadmatesTable();
+      if (typeof renderChatSidebar === 'function') renderChatSidebar();
       safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}${skippedCount ? `, skipped ${skippedCount} because this account can only hold ${MAX_HEADMATES_PER_ACCOUNT} total.` : '.'}`);
     }
   });
@@ -7323,8 +7414,8 @@ function setAppLockState() {
   }
 
   if (userSwitcherBtn) {
-    userSwitcherBtn.classList.remove('disabled');
-    userSwitcherBtn.setAttribute('aria-disabled', 'false');
+    userSwitcherBtn.classList.toggle('disabled', locked);
+    userSwitcherBtn.setAttribute('aria-disabled', String(locked));
   }
 
   if (profileHeader) {
@@ -7652,6 +7743,7 @@ function renderAccountModule() {
   }
 
   renderMessagesModule();
+  if (typeof renderChatSidebar === 'function') renderChatSidebar();
   setAppLockState();
   renderDashboard();
 }
@@ -8391,7 +8483,19 @@ function getFirstVisibleModule(preferred = 'dashboard') {
   return nextItem?.dataset.module || 'profile';
 }
 
+function healModuleVisibilitySettings() {
+  const criticalModules = ['chat', 'messages', 'health', 'switchboard', 'gallery', 'templates', 'calendar', 'notifications'];
+  const disabledCriticalCount = criticalModules.filter((key) => moduleVisibilitySettings[key] === false).length;
+
+  if (disabledCriticalCount >= 3) {
+    criticalModules.forEach((key) => {
+      moduleVisibilitySettings[key] = true;
+    });
+  }
+}
+
 function applyModuleVisibilitySettings() {
+  healModuleVisibilitySettings();
   navItems.forEach((item) => {
     const module = item.dataset.module;
     item.hidden = !isModuleEnabled(module);
@@ -8671,6 +8775,7 @@ function applyHubStateSnapshot(saved = {}, options = {}) {
 
   if (typeof renderSystemProfiles === 'function') renderSystemProfiles();
   if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+  if (typeof renderChatSidebar === 'function') renderChatSidebar();
   if (typeof renderPartnersTable === 'function') renderPartnersTable();
   if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
   if (typeof renderItemsTable === 'function') renderItemsTable(itemsSearch?.value || '');
