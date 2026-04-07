@@ -4925,56 +4925,73 @@ if (deleteHeadmateBtn) {
   });
 }
 
-if (bulkAddHeadmatesBtn && headmatesTableBody) {
-  bulkAddHeadmatesBtn.addEventListener('click', () => {
-    const raw = safePrompt(
-      'Bulk add headmates. Enter one per line as Name|Role|Status. Status can be Active, Pending, or Inactive.\\nExample:\\nNova|Core|Active\\nEmber|Support|Pending'
-    , 'Nova|Core|Active');
+function bulkAddHeadmatesFromList(rawText = '') {
+  const entries = String(rawText || '')
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const trimmed = String(line || '').trim();
+      if (!trimmed) return [];
+      if (trimmed.includes('|')) return [trimmed];
+      return trimmed.split(/[,;]+/).map((part) => part.trim()).filter(Boolean);
+    });
 
-    if (!raw) return;
+  if (!entries.length) return { addedCount: 0, skippedCount: 0 };
 
-    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    if (!lines.length) return;
+  const remainingCapacity = Math.max(0, MAX_HEADMATES_PER_ACCOUNT - getTotalHeadmateCountForAccount());
+  if (!remainingCapacity) {
+    canCreateHeadmates(1);
+    return { addedCount: 0, skippedCount: entries.length };
+  }
 
-    const remainingCapacity = Math.max(0, MAX_HEADMATES_PER_ACCOUNT - getTotalHeadmateCountForAccount());
-    if (!remainingCapacity) {
-      canCreateHeadmates(1);
+  const activeProfiles = getActiveHeadmateProfiles();
+  let addedCount = 0;
+  let skippedCount = 0;
+
+  entries.forEach((entry) => {
+    if (addedCount >= remainingCapacity) {
+      skippedCount += 1;
       return;
     }
 
-    let addedCount = 0;
-    let skippedCount = 0;
+    const [rawName, rawRegion, rawStatus] = String(entry).split('|').map((part) => (part || '').trim());
+    if (!rawName) {
+      skippedCount += 1;
+      return;
+    }
 
-    lines.forEach((line) => {
-      if (addedCount >= remainingCapacity) {
-        skippedCount += 1;
-        return;
-      }
+    const name = rawName;
+    const region = rawRegion || 'No role set';
+    const status = normalizeStatus(rawStatus);
 
-      const [rawName, rawRegion, rawStatus] = line.split('|').map((part) => (part || '').trim());
-      if (!rawName) return;
+    const baseKey = slugifyHeadmateName(name);
+    let key = baseKey;
+    let suffix = 2;
+    while (activeProfiles[key]) {
+      key = `${baseKey}-${suffix}`;
+      suffix += 1;
+    }
 
-      const name = rawName;
-      const region = rawRegion || 'No role set';
-      const status = normalizeStatus(rawStatus);
+    activeProfiles[key] = createDefaultHeadmateProfile(name, region, status);
+    addedCount += 1;
+  });
 
-      const baseKey = slugifyHeadmateName(name);
-      let key = baseKey;
-      let suffix = 2;
-      const activeProfiles = getActiveHeadmateProfiles();
-      while (activeProfiles[key]) {
-        key = `${baseKey}-${suffix}`;
-        suffix += 1;
-      }
+  return { addedCount, skippedCount };
+}
 
-      activeProfiles[key] = createDefaultHeadmateProfile(name, region, status);
-      addedCount += 1;
-    });
+if (bulkAddHeadmatesBtn && headmatesTableBody) {
+  bulkAddHeadmatesBtn.addEventListener('click', () => {
+    const raw = safePrompt(
+      'Bulk add headmates from a list. Paste one per line, a comma-separated list, or use Name|Role|Status.\\nExamples:\\nNova\\nEmber\\nSky\\n\\nor\\nNova|Core|Active\\nEmber|Support|Pending'
+    , 'Nova\nEmber\nSky');
 
-    if (addedCount > 0) {
+    if (!raw) return;
+
+    const result = bulkAddHeadmatesFromList(raw);
+    if (result.addedCount > 0) {
       renderHeadmatesTable();
       if (typeof renderChatSidebar === 'function') renderChatSidebar();
-      safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}${skippedCount ? `, skipped ${skippedCount} because this account can only hold ${MAX_HEADMATES_PER_ACCOUNT} total.` : '.'}`);
+      if (typeof scheduleHubStatePersist === 'function') scheduleHubStatePersist();
+      safeAlert(`Added ${result.addedCount} headmate${result.addedCount === 1 ? '' : 's'}${result.skippedCount ? `, skipped ${result.skippedCount} because this account can only hold ${MAX_HEADMATES_PER_ACCOUNT} total.` : '.'}`);
     }
   });
 }
