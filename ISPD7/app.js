@@ -8854,6 +8854,7 @@ if (exportDataBtn) {
     a.download = `ispd7-export-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    safeAlert('Backup downloaded. Move this JSON file to your other device, then use Import Data there.');
   });
 }
 
@@ -8874,7 +8875,7 @@ if (importDataBtn && importDataFile) {
       const text = await file.text();
       const parsed = JSON.parse(text);
       const counts = importHubDataDump(parsed);
-      safeAlert(`Import complete. Restored ${counts.total} records, including ${counts.systemCount} systems and ${counts.headmateCount} headmates.`);
+      safeAlert(`Import complete. Restored ${counts.total} records, including ${counts.systemCount} systems and ${counts.headmateCount} headmates. This browser should now match the device that exported the file.`);
     } catch (error) {
       safeAlert(error?.message || 'Could not import that file.');
     } finally {
