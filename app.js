@@ -7483,6 +7483,7 @@ const editAccountTagsInput = document.getElementById('editAccountTagsInput');
 const editAccountCustomFieldsInput = document.getElementById('editAccountCustomFieldsInput');
 const editAccountPhotoInput = document.getElementById('editAccountPhotoInput');
 const editAccountBannerInput = document.getElementById('editAccountBannerInput');
+const editAccountColorInput = document.getElementById('editAccountColorInput');
 const editPasswordInput = document.getElementById('editPasswordInput');
 const editConfirmPasswordInput = document.getElementById('editConfirmPasswordInput');
 const editError = document.getElementById('editError');
@@ -7737,6 +7738,10 @@ function renderAccountModule() {
     if (editAccountDescriptionInput) editAccountDescriptionInput.value = acct.description || '';
     if (editAccountTagsInput) editAccountTagsInput.value = acct.tags || '';
     if (editAccountCustomFieldsInput) editAccountCustomFieldsInput.value = acct.customFields || '';
+    if (editAccountColorInput) {
+      editAccountColorInput.value = normalizeHexColor(acct.color || '#6c63ff', '#6c63ff');
+      syncColorValuePill(editAccountColorInput, '#6c63ff');
+    }
     if (editAccountPhotoInput) {
       editAccountPhotoInput.value = acct.profilePhoto || initial;
       primeStoredMediaInput(editAccountPhotoInput);
@@ -7941,8 +7946,13 @@ if (openAccountFriendsTabBtn) {
 }
 
 if (saveAccountBtn) {
-  saveAccountBtn.addEventListener('click', async () => {
-    if (!loggedInAccountKey || !accounts[loggedInAccountKey]) return;
+  saveAccountBtn.addEventListener('click', async (event) => {
+    event?.preventDefault?.();
+    if (!loggedInAccountKey || !accounts[loggedInAccountKey]) {
+      showAccountError(editError, 'Sign in first to edit your member profile.');
+      navigateTo('profile');
+      return;
+    }
     const current = accounts[loggedInAccountKey];
     const name = (editAccountNameInput?.value || '').trim();
     const username = (editAccountUsernameInput?.value || '').trim().toLowerCase();
@@ -7951,6 +7961,7 @@ if (saveAccountBtn) {
     const customFields = (editAccountCustomFieldsInput?.value || '').trim();
     const profilePhoto = getEditorInputValue(editAccountPhotoInput);
     const banner = getEditorInputValue(editAccountBannerInput);
+    const accountColor = normalizeHexColor(editAccountColorInput?.value || current.color || '#6c63ff', current.color || '#6c63ff');
     const newPassword = editPasswordInput?.value || '';
     const confirmPassword = editConfirmPasswordInput?.value || '';
 
@@ -7981,7 +7992,8 @@ if (saveAccountBtn) {
       tags: tags || 'Not set',
       customFields: customFields || 'Not set',
       profilePhoto: profilePhoto || (name[0]?.toUpperCase() || 'U'),
-      banner: banner || `${name} Banner`
+      banner: banner || `${name} Banner`,
+      color: accountColor
     };
 
     if (USE_BACKEND_AUTH) {
@@ -8032,8 +8044,14 @@ if (saveAccountBtn) {
 
     showAccountError(editError, '');
     persistAccountState();
+    if (typeof persistHubState === 'function') {
+      persistHubState({ immediate: true, allowDuringInit: true, remote: false });
+    }
     renderAccountModule();
-    safeAlert('Profile saved.');
+    const successMessage = (!USE_BACKEND_AUTH && !updated.password)
+      ? 'Profile saved locally. Set a new password once if you want this browser to sign in with that account later.'
+      : 'Profile saved.';
+    safeAlert(successMessage);
   });
 }
 
@@ -8278,14 +8296,17 @@ function applyThemeSelection() {
 
   const customRow = document.getElementById('customThemeTokensRow');
   const customEnabled = selectedLightThemeKey === 'custom-light' || selectedDarkThemeKey === 'custom-dark';
-  if (customRow) customRow.hidden = !customEnabled;
-
-  if (customEnabled) {
-    renderThemeTokenGrid('light', customLightTokenGrid);
-    renderThemeTokenGrid('dark', customDarkTokenGrid);
-    syncThemeTokenInputs(customLightTokenGrid);
-    syncThemeTokenInputs(customDarkTokenGrid);
+  if (customRow) customRow.hidden = false;
+  if (customThemeTokensHint) {
+    customThemeTokensHint.textContent = customEnabled
+      ? 'Custom theme is active. Use the 10 color pickers below for light and dark mode, then click Apply Custom Theme.'
+      : 'Use the 10 color pickers below, then click Apply Custom Theme. The custom preset will activate automatically.';
   }
+
+  renderThemeTokenGrid('light', customLightTokenGrid);
+  renderThemeTokenGrid('dark', customDarkTokenGrid);
+  syncThemeTokenInputs(customLightTokenGrid);
+  syncThemeTokenInputs(customDarkTokenGrid);
 }
 
 const lightThemeSelect = document.getElementById('lightThemeSelect');
@@ -8313,6 +8334,7 @@ if (darkThemeSelect) {
 
 const customLightTokenGrid = document.getElementById('customLightTokenGrid');
 const customDarkTokenGrid = document.getElementById('customDarkTokenGrid');
+const customThemeTokensHint = document.getElementById('customThemeTokensHint');
 const applyCustomThemeTokensBtn = document.getElementById('applyCustomThemeTokensBtn');
 
 if (applyCustomThemeTokensBtn) {
@@ -8333,14 +8355,22 @@ if (applyCustomThemeTokensBtn) {
       dark: readTokens('dark', customDarkTokenGrid, customThemeTokens.dark)
     };
 
-    // If user selected custom preset for one mode, preview in that mode immediately.
-    if (selectedDarkThemeKey === 'custom-dark' && selectedLightThemeKey !== 'custom-light') {
+    selectedLightThemeKey = 'custom-light';
+    selectedDarkThemeKey = 'custom-dark';
+    if (lightThemeSelect) lightThemeSelect.value = selectedLightThemeKey;
+    if (darkThemeSelect) darkThemeSelect.value = selectedDarkThemeKey;
+
+    if (document.body.classList.contains('dark')) {
       setDarkMode(true);
-    } else if (selectedLightThemeKey === 'custom-light' && selectedDarkThemeKey !== 'custom-dark') {
+    } else {
       setDarkMode(false);
     }
 
     applyThemeSelection();
+    if (typeof persistHubState === 'function') {
+      persistHubState({ immediate: true, allowDuringInit: true, remote: false });
+    }
+    safeAlert('Custom theme saved.');
   });
 }
 
@@ -9156,6 +9186,15 @@ if (systemEditColor) {
   });
   systemEditColor.addEventListener('change', () => {
     syncColorValuePill(systemEditColor);
+  });
+}
+if (editAccountColorInput) {
+  syncColorValuePill(editAccountColorInput, '#6c63ff');
+  editAccountColorInput.addEventListener('input', () => {
+    syncColorValuePill(editAccountColorInput, '#6c63ff');
+  });
+  editAccountColorInput.addEventListener('change', () => {
+    syncColorValuePill(editAccountColorInput, '#6c63ff');
   });
 }
 

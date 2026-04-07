@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>DID System Hub</title>
-  <link rel="stylesheet" href="style.css?v=20260407f" />
+  <link rel="stylesheet" href="style.css?v=20260407g" />
 </head>
 <body>
 
@@ -755,9 +755,10 @@
                   <div class="theme-preview-grid" id="themePreviewGrid"></div>
                 </div>
               </div>
-              <div class="setting-row" id="customThemeTokensRow" hidden>
-                <label>Custom Theme Tokens (10 colors each)</label>
+              <div class="setting-row" id="customThemeTokensRow">
+                <label>Custom Theme Tokens (10 color pickers per mode)</label>
                 <div class="theme-token-editor">
+                  <p class="field-helper" id="customThemeTokensHint" style="margin:0 0 .75rem 0">Use the 10 color pickers below, then click Apply Custom Theme. The custom preset will activate automatically.</p>
                   <div>
                     <strong class="theme-token-title">Light Mode</strong>
                     <div class="theme-token-grid" id="customLightTokenGrid"></div>
@@ -767,7 +768,7 @@
                     <div class="theme-token-grid" id="customDarkTokenGrid"></div>
                   </div>
                   <div style="display:flex;justify-content:flex-end">
-                    <button class="btn-sm" id="applyCustomThemeTokensBtn">Apply Custom Theme</button>
+                    <button class="btn-sm" id="applyCustomThemeTokensBtn" type="button">Apply Custom Theme</button>
                   </div>
                 </div>
               </div>
@@ -1019,8 +1020,8 @@
                 <div class="setting-row"><label>Password</label><input type="password" class="setting-input" id="loginPasswordInput" autocomplete="current-password" /></div>
                 <p class="account-error" id="loginError" hidden></p>
                 <div style="display:flex;gap:.5rem;margin-top:1rem">
-                  <button class="btn-primary" id="loginSubmitBtn">Sign In</button>
-                  <button class="btn-sm" id="showSignupBtn">Create Account</button>
+                  <button class="btn-primary" id="loginSubmitBtn" type="button">Sign In</button>
+                  <button class="btn-sm" id="showSignupBtn" type="button">Create Account</button>
                 </div>
               </div>
             </div>
@@ -1035,8 +1036,8 @@
                 <div class="setting-row"><label>Password</label><input type="password" class="setting-input" id="signupPasswordInput" autocomplete="new-password" /></div>
                 <p class="account-error" id="signupError" hidden></p>
                 <div style="display:flex;gap:.5rem;margin-top:1rem">
-                  <button class="btn-primary" id="signupSubmitBtn">Create Account</button>
-                  <button class="btn-sm" id="showLoginBtn">Back to Sign In</button>
+                  <button class="btn-primary" id="signupSubmitBtn" type="button">Create Account</button>
+                  <button class="btn-sm" id="showLoginBtn" type="button">Back to Sign In</button>
                 </div>
               </div>
             </div>
@@ -1071,16 +1072,24 @@
                 <p class="field-helper">Create extra profile fields by adding one line per field using <code>Label: Value</code>.</p>
                 <div class="setting-row"><label>Profile Photo</label><input type="text" class="setting-input" id="editAccountPhotoInput" placeholder="Letter or image/GIF URL" /></div>
                 <div class="setting-row"><label>Banner</label><input type="text" class="setting-input" id="editAccountBannerInput" placeholder="Banner text or image/GIF URL" /></div>
+                <div class="setting-row">
+                  <label>Accent Color</label>
+                  <div class="color-input-row">
+                    <input class="setting-input setting-input-color" id="editAccountColorInput" type="color" value="#6c63ff" />
+                    <span class="color-value-pill" data-color-value-for="editAccountColorInput">#6C63FF</span>
+                  </div>
+                </div>
                 <div class="setting-row"><label>New Password</label><input type="password" class="setting-input" id="editPasswordInput" autocomplete="new-password" placeholder="Leave blank to keep current" /></div>
                 <div class="setting-row"><label>Confirm Password</label><input type="password" class="setting-input" id="editConfirmPasswordInput" autocomplete="new-password" /></div>
+                <p class="field-helper">If local sign-in is active, setting a password here keeps this member profile reusable in this browser.</p>
                 <p class="account-error" id="editError" hidden></p>
-                <button class="btn-primary" id="saveAccountBtn" style="margin-top:1rem">Save Changes</button>
+                <button class="btn-primary" id="saveAccountBtn" type="button" style="margin-top:1rem">Save Changes</button>
               </div>
               <div class="settings-group">
                 <h3>Account Actions</h3>
                 <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.5rem">
-                  <button class="btn-sm" id="logoutBtn">Log Out</button>
-                  <button class="btn-danger" id="deleteAccountBtn">Delete Account</button>
+                  <button class="btn-sm" id="logoutBtn" type="button">Log Out</button>
+                  <button class="btn-danger" id="deleteAccountBtn" type="button">Delete Account</button>
                 </div>
               </div>
             </div>
@@ -1092,7 +1101,7 @@
     </main>
   </div>
 
-  <script src="config.js?v=20260407f"></script>
-  <script src="app.js?v=20260407f"></script>
+  <script src="config.js?v=20260407g"></script>
+  <script src="app.js?v=20260407g"></script>
 </body>
 </html>
