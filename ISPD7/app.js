@@ -7281,6 +7281,65 @@ function buildRemoteAccountStatePayload(account = getCurrentAccountRecord()) {
   };
 }
 
+async function finalizeRemoteAuthSuccess(result = {}, fallbackUsername = '', options = {}) {
+  const localAccount = options.localAccount && typeof options.localAccount === 'object'
+    ? cloneJsonData(options.localAccount, {})
+    : null;
+  const preserveLocalState = Boolean(options.preserveLocalState);
+  const account = normalizeRemoteAccount(result.account, fallbackUsername);
+
+  if (localAccount?.password && !account.password) {
+    account.password = localAccount.password;
+  }
+
+  if (localAccount?.username && localAccount.username !== account.username) {
+    delete accounts[localAccount.username];
+  }
+
+  accounts[account.username] = { ...(localAccount || {}), ...account };
+  loggedInAccountKey = account.username;
+  setAuthToken(result.token || '');
+  lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(accounts[account.username]) || {});
+  persistAccountState();
+
+  const remoteSnapshot = account.hubState && typeof account.hubState === 'object' ? account.hubState : null;
+  const remoteCounts = getHubStateEntityCounts(remoteSnapshot || {});
+  const localSnapshot = buildHubStateSnapshot();
+  const localCounts = getHubStateEntityCounts(localSnapshot);
+
+  if (preserveLocalState && localCounts.total > 0 && localCounts.total >= remoteCounts.total) {
+    persistHubState({ immediate: true, allowDuringInit: true });
+    lastRemoteHubStateText = JSON.stringify(buildHubStateSnapshot());
+  } else if (remoteSnapshot && typeof applyHubStateSnapshot === 'function') {
+    applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
+    lastRemoteHubStateText = JSON.stringify(remoteSnapshot || {});
+  }
+
+  await refreshAccountDirectoryFromBackend();
+  renderAccountModule();
+  return account;
+}
+
+async function promoteLocalAccountToCloud(username = '', password = '', localAccount = null) {
+  const localRecord = localAccount && typeof localAccount === 'object' ? localAccount : accounts[username];
+  if (!localRecord || typeof localRecord !== 'object') {
+    throw new Error('No saved local account was found for that username on this device.');
+  }
+  if (localRecord.password && localRecord.password !== password) {
+    throw new Error('Incorrect password.');
+  }
+
+  const result = await apiRequest('/api/auth/signup', {
+    method: 'POST',
+    body: JSON.stringify({ username, password })
+  });
+
+  return finalizeRemoteAuthSuccess(result, username, {
+    localAccount: { ...localRecord, password: password || localRecord.password || '' },
+    preserveLocalState: true
+  });
+}
+
 function buildAccountStoragePayload(accountsMap = accounts) {
   const cachedAccounts = {};
   Object.entries(accountsMap || {}).forEach(([key, account]) => {
@@ -7869,17 +7928,10 @@ if (loginSubmitBtn) {
           method: 'POST',
           body: JSON.stringify({ username, password })
         });
-        const account = normalizeRemoteAccount(result.account, username);
-        accounts[account.username] = account;
-        loggedInAccountKey = account.username;
-        setAuthToken(result.token || '');
-        if (account.hubState && typeof applyHubStateSnapshot === 'function') {
-          applyHubStateSnapshot(account.hubState, { persistLocal: true });
-          lastRemoteHubStateText = JSON.stringify(account.hubState || {});
-        }
-        persistAccountState();
-        await refreshAccountDirectoryFromBackend();
-        renderAccountModule();
+        await finalizeRemoteAuthSuccess(result, username, {
+          localAccount: accounts[username],
+          preserveLocalState: Boolean(accounts[username])
+        });
         navigateTo('dashboard');
       } catch (err) {
         if (isBackendUnavailableError(err)) {
@@ -7888,7 +7940,7 @@ if (loginSubmitBtn) {
             showAccountError(loginError, 'The server is offline right now. Create an account below to sign in locally on this browser.');
             return;
           }
-          if (acct.password !== password) {
+          if (acct.password && acct.password !== password) {
             showAccountError(loginError, 'Incorrect password.');
             return;
           }
@@ -7897,6 +7949,22 @@ if (loginSubmitBtn) {
           renderAccountModule();
           safeAlert('Server offline — signed in locally on this browser instead.');
           navigateTo('dashboard');
+          return;
+        }
+        if (err?.status === 404) {
+          const localAccount = accounts[username];
+          if (localAccount) {
+            try {
+              await promoteLocalAccountToCloud(username, password, localAccount);
+              safeAlert('Your saved browser account is now connected to cloud sync.');
+              navigateTo('dashboard');
+              return;
+            } catch (migrationError) {
+              showAccountError(loginError, migrationError?.message || 'Could not connect your saved browser account to cloud sync yet.');
+              return;
+            }
+          }
+          showAccountError(loginError, 'No cloud account exists with that username yet. If this account was created during the sync outage, sign in once on the original device first so it can sync to the server.');
           return;
         }
         showAccountError(loginError, err.message || 'Sign-in failed.');
@@ -7940,17 +8008,10 @@ if (signupSubmitBtn) {
           method: 'POST',
           body: JSON.stringify({ username, password })
         });
-        const account = normalizeRemoteAccount(result.account, username);
-        accounts[account.username] = account;
-        loggedInAccountKey = account.username;
-        setAuthToken(result.token || '');
-        if (account.hubState && typeof applyHubStateSnapshot === 'function') {
-          applyHubStateSnapshot(account.hubState, { persistLocal: true });
-          lastRemoteHubStateText = JSON.stringify(account.hubState || {});
-        }
-        persistAccountState();
-        await refreshAccountDirectoryFromBackend();
-        renderAccountModule();
+        await finalizeRemoteAuthSuccess(result, username, {
+          localAccount: accounts[username],
+          preserveLocalState: Boolean(accounts[username])
+        });
         navigateTo('dashboard');
       } catch (err) {
         if (isBackendUnavailableError(err)) {
