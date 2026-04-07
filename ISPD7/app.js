@@ -9203,42 +9203,171 @@ function importHubDataDump(payload = {}) {
   return getHubStateEntityCounts(normalized);
 }
 
-if (exportDataBtn) {
-  exportDataBtn.addEventListener('click', () => {
-    const dump = buildPortableExportDump();
-    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `ispd7-export-${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
+function buildPortableExportFileName() {
+  return `ispd7-export-${new Date().toISOString().slice(0,10)}.json`;
+}
+
+async function exportPortableBackupFile() {
+  const dump = buildPortableExportDump();
+  const jsonText = JSON.stringify(dump, null, 2);
+  const fileName = buildPortableExportFileName();
+
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [{
+          description: 'JSON files',
+          accept: { 'application/json': ['.json'] }
+        }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(jsonText);
+      await writable.close();
+      return 'saved';
+    } catch (error) {
+      if (error?.name === 'AbortError') return 'cancelled';
+    }
+  }
+
+  if (
+    typeof navigator !== 'undefined'
+    && typeof navigator.share === 'function'
+    && typeof navigator.canShare === 'function'
+    && typeof File === 'function'
+  ) {
+    try {
+      const shareFile = new File([jsonText], fileName, { type: 'application/json' });
+      if (navigator.canShare({ files: [shareFile] })) {
+        await navigator.share({
+          files: [shareFile],
+          title: 'ISPD7 JSON backup'
+        });
+        return 'shared';
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') return 'cancelled';
+    }
+  }
+
+  const blob = new Blob([jsonText], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  link.rel = 'noopener';
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  window.setTimeout(() => {
     URL.revokeObjectURL(url);
-    safeAlert('Backup downloaded. Automatic sync should work while both devices are signed into the same account, and this JSON can still be imported as a manual backup.');
+    link.remove();
+  }, 1200);
+  return 'downloaded';
+}
+
+async function pickImportBackupFile() {
+  if (typeof window.showOpenFilePicker === 'function') {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        multiple: false,
+        types: [{
+          description: 'JSON files',
+          accept: { 'application/json': ['.json'] }
+        }]
+      });
+      if (!handle) return null;
+      const file = await handle.getFile();
+      return {
+        file,
+        text: await file.text()
+      };
+    } catch (error) {
+      if (error?.name === 'AbortError') return null;
+    }
+  }
+
+  if (!importDataFile) {
+    throw new Error('Import is not available in this browser right now.');
+  }
+
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      importDataFile.removeEventListener('change', onChange);
+      importDataFile.removeEventListener('cancel', onCancel);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      importDataFile.value = '';
+      resolve(null);
+    };
+
+    const onChange = async (event) => {
+      cleanup();
+      const [file] = Array.from(event.target.files || []);
+      event.target.value = '';
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      try {
+        resolve({
+          file,
+          text: await file.text()
+        });
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    importDataFile.addEventListener('change', onChange, { once: true });
+    importDataFile.addEventListener('cancel', onCancel, { once: true });
+
+    try {
+      importDataFile.value = '';
+      if (typeof importDataFile.showPicker === 'function') {
+        importDataFile.showPicker();
+      } else {
+        importDataFile.click();
+      }
+    } catch (_error) {
+      cleanup();
+      reject(new Error('Your browser blocked the file picker. Try again after refreshing the page.'));
+    }
   });
 }
 
-if (importDataBtn && importDataFile) {
-  importDataBtn.addEventListener('click', () => {
-    importDataFile.click();
-  });
-
-  importDataFile.addEventListener('change', async (event) => {
-    const [file] = Array.from(event.target.files || []);
-    if (!file) return;
-
+if (exportDataBtn) {
+  exportDataBtn.addEventListener('click', async () => {
     try {
+      const method = await exportPortableBackupFile();
+      if (method === 'cancelled') return;
+      safeAlert(method === 'shared'
+        ? 'Backup ready to share as a JSON file.'
+        : 'Backup exported as a JSON file.');
+    } catch (error) {
+      safeAlert(error?.message || 'Could not export your data right now.');
+    }
+  });
+}
+
+if (importDataBtn) {
+  importDataBtn.addEventListener('click', async () => {
+    try {
+      const picked = await pickImportBackupFile();
+      if (!picked) return;
+
       if (!safeConfirm('Import data from this JSON backup? This will replace the current local hub data in this browser.')) {
         return;
       }
 
-      const text = await file.text();
-      const parsed = JSON.parse(text);
+      const parsed = JSON.parse(picked.text);
       const counts = importHubDataDump(parsed);
-      safeAlert(`Import complete. Restored ${counts.total} records, including ${counts.systemCount} systems and ${counts.headmateCount} headmates. This browser should now match the device that exported the file.`);
+      navigateTo('dashboard');
+      safeAlert(`Import complete. Restored ${counts.total} records, including ${counts.systemCount} systems and ${counts.headmateCount} headmates.`);
     } catch (error) {
       safeAlert(error?.message || 'Could not import that file.');
-    } finally {
-      event.target.value = '';
     }
   });
 }

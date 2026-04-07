@@ -8,7 +8,7 @@
   <meta http-equiv="Pragma" content="no-cache" />
   <meta http-equiv="Expires" content="0" />
   <title>DID System Hub</title>
-  <link rel="stylesheet" href="style.css?v=20260407m" />
+  <link rel="stylesheet" href="style.css?v=20260407n" />
 </head>
 <body>
 
@@ -855,11 +855,11 @@
             <!-- Data -->
             <div class="settings-group">
               <h3>Data</h3>
-              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">When you are signed into the same account, your hub data should sync automatically between phone and laptop. Export/import is still available as a backup.</p>
+              <p style="color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem">When you are signed into the same account, your hub data should sync automatically between phone and laptop. Export saves a real JSON backup file, and Import restores from one.</p>
               <div style="display:flex;gap:.75rem;flex-wrap:wrap">
                 <button class="btn-primary" id="exportDataBtn" type="button">Export All Data (JSON)</button>
                 <button class="btn-primary" id="importDataBtn" type="button">Import Data (JSON)</button>
-                <input id="importDataFile" type="file" accept=".json,application/json" hidden />
+                <input id="importDataFile" type="file" accept=".json,application/json" style="position:fixed;left:-10000px;top:auto;width:1px;height:1px;opacity:0;pointer-events:none" tabindex="-1" aria-hidden="true" />
                 <button class="btn-danger" id="clearDataBtn" type="button">Clear All Local Data</button>
               </div>
             </div>
@@ -1112,7 +1112,7 @@
     </main>
   </div>
 
-  <script src="config.js?v=20260407m"></script>
-  <script src="app.js?v=20260407m"></script>
+  <script src="config.js?v=20260407n"></script>
+  <script src="app.js?v=20260407n"></script>
 </body>
 </html>
