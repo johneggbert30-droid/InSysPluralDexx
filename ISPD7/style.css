@@ -54,9 +54,11 @@ html, body {
 }
 
 body {
-  height: 100dvh;
-  min-height: 100dvh;
-  overflow: hidden;
+  min-height: 100vh;
+  min-height: 100svh;
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
 }
 
@@ -248,12 +250,13 @@ select {
 .layout {
   display: grid;
   grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
-  align-items: start;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
   margin-top: var(--topbar-h);
-  height: calc(100dvh - var(--topbar-h));
-  min-height: 0;
+  min-height: calc(100vh - var(--topbar-h));
+  min-height: calc(100svh - var(--topbar-h));
+  height: auto;
   background: var(--bg);
 }
 
@@ -270,7 +273,7 @@ select {
   background: var(--surface);
   border-right: 1px solid var(--border);
   flex: 0 0 var(--sidebar-w);
-  align-self: stretch;
+  align-self: start;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
@@ -278,8 +281,9 @@ select {
   padding: 12px 8px calc(28px + env(safe-area-inset-bottom, 0px));
   transition: width var(--transition), padding var(--transition), flex-basis var(--transition);
   position: sticky;
-  top: 0;
-  height: 100%;
+  top: var(--topbar-h);
+  height: calc(100vh - var(--topbar-h));
+  height: calc(100svh - var(--topbar-h));
 }
 
 .sidebar-backdrop {
@@ -333,11 +337,12 @@ select {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  height: 100%;
-  min-height: 0;
+  min-height: calc(100vh - var(--topbar-h));
+  min-height: calc(100svh - var(--topbar-h));
+  height: auto;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow-y: visible;
+  overscroll-behavior: auto;
   scroll-behavior: auto;
   background: var(--bg);
 }
@@ -353,11 +358,13 @@ select {
   display: none;
   flex-direction: column;
   width: 100%;
-  min-height: calc(100dvh - var(--topbar-h));
+  min-height: calc(100vh - var(--topbar-h));
+  min-height: calc(100svh - var(--topbar-h));
   padding: 6px 10px 10px;
   scroll-margin-top: 0;
   background: var(--bg);
   animation: fadeIn 0.18s ease;
+  flex: 0 0 auto;
 }
 .module-page.active { display: flex; }
 .main-content > .module-page.active { display: flex !important; }
@@ -401,7 +408,14 @@ select {
   color: var(--text);
 }
 
-.page-body { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 
 .dashboard-hero {
   display: flex;
@@ -2857,10 +2871,12 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
 @media (max-width: 760px) {
   body {
     overflow-y: auto;
+    min-height: 100svh;
   }
 
   .layout {
     display: block;
+    min-height: calc(100svh - var(--topbar-h));
     height: auto;
   }
 
@@ -2928,13 +2944,14 @@ body.dark .badge.red { background: #3a1020; color: #ff6584; border-color: #5a203
     margin-left: 0 !important;
     max-width: 100%;
     width: 100%;
-    height: calc(100dvh - var(--topbar-h));
-    min-height: calc(100dvh - var(--topbar-h));
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    height: auto;
+    min-height: calc(100svh - var(--topbar-h));
+    overflow-y: visible;
+    -webkit-overflow-scrolling: auto;
   }
 
   .module-page {
+    min-height: calc(100svh - var(--topbar-h));
     padding: 6px 8px 10px;
   }
 
