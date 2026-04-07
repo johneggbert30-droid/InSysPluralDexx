@@ -7791,7 +7791,6 @@ const accountTagsDisplay = document.getElementById('accountTagsDisplay');
 const accountCustomFieldsDisplay = document.getElementById('accountCustomFieldsDisplay');
 const accountFriendsSummary = document.getElementById('accountFriendsSummary');
 const accountFriendsList = document.getElementById('accountFriendsList');
-const accountDirectoryList = document.getElementById('accountDirectoryList');
 const friendUsernameInput = document.getElementById('friendUsernameInput');
 const friendTrustLevelInput = document.getElementById('friendTrustLevelInput');
 const friendError = document.getElementById('friendError');
@@ -7886,9 +7885,6 @@ function renderAccountFriendSection(account = getCurrentAccountRecord()) {
   if (!account) {
     accountFriendsSummary.textContent = 'Sign in to manage your account friends.';
     accountFriendsList.innerHTML = '<p class="headmate-hint" style="margin:0">Sign in to add, edit, or remove friends.</p>';
-    if (accountDirectoryList) {
-      accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">Sign in to view other known accounts.</p>';
-    }
     return;
   }
 
@@ -7922,47 +7918,6 @@ function renderAccountFriendSection(account = getCurrentAccountRecord()) {
       `;
     }).join('');
   }
-
-  if (!accountDirectoryList) return;
-
-  const knownAccounts = (Array.isArray(remoteAccountDirectory) && remoteAccountDirectory.length ? remoteAccountDirectory : Object.values(accounts || {}))
-    .map((entry) => ({
-      username: String(entry?.username || '').trim().toLowerCase(),
-      name: String(entry?.name || entry?.username || 'Unknown account').trim(),
-      description: String(entry?.description || 'No description set.'),
-      profilePhoto: entry?.profilePhoto || String(entry?.name || entry?.username || '?').trim()[0]?.toUpperCase() || '?',
-      color: entry?.color || '#6c63ff',
-      trustLevel: normalizeAccountTrustLevel(entry?.trustLevel, ''),
-      theirTrustLevel: normalizeAccountTrustLevel(entry?.theirTrustLevel, '')
-    }))
-    .filter((entry, index, list) => entry.username && entry.username !== account.username && list.findIndex((item) => item.username === entry.username) === index)
-    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
-
-  if (!knownAccounts.length) {
-    accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">No other accounts are available yet. Ask your friend to create an account first.</p>';
-    return;
-  }
-
-  accountDirectoryList.innerHTML = knownAccounts.map((entry) => {
-    const relationshipHint = entry.trustLevel
-      ? `Current trust: ${entry.trustLevel}`
-      : (entry.theirTrustLevel ? `They list you as: ${entry.theirTrustLevel}` : 'Ready to add as a friend');
-    return `
-      <article class="account-friend-card">
-        <div class="account-friend-main">
-          ${renderAvatarMarkup(entry.profilePhoto, entry.name[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
-          <div class="account-friend-meta">
-            <strong>${escapeHtml(entry.name)}</strong>
-            <span>@${escapeHtml(entry.username)}</span>
-            <span>${escapeHtml(relationshipHint)}</span>
-          </div>
-        </div>
-        <div class="account-friend-actions">
-          <button class="btn-sm" type="button" data-prefill-account-friend="${escapeHtml(entry.username)}" data-prefill-account-trust="${escapeHtml(entry.trustLevel || 'friends')}">Add / Update</button>
-        </div>
-      </article>
-    `;
-  }).join('');
 }
 
 async function saveAccountFriendLink(targetUsername = '', trustLevel = 'friends', options = {}) {
@@ -8354,20 +8309,6 @@ if (accountFriendsList) {
     const trustSelect = event.target.closest('[data-account-friend-trust]');
     if (!trustSelect) return;
     saveAccountFriendLink(trustSelect.dataset.accountFriendTrust || '', trustSelect.value, { silent: true });
-  });
-}
-
-if (accountDirectoryList) {
-  accountDirectoryList.addEventListener('click', (event) => {
-    const prefillBtn = event.target.closest('[data-prefill-account-friend]');
-    if (!prefillBtn) return;
-    if (friendUsernameInput) {
-      friendUsernameInput.value = prefillBtn.dataset.prefillAccountFriend || '';
-      friendUsernameInput.focus();
-    }
-    if (friendTrustLevelInput) {
-      friendTrustLevelInput.value = prefillBtn.dataset.prefillAccountTrust || 'friends';
-    }
   });
 }
 
