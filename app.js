@@ -5192,8 +5192,9 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
 // =====================
 // Security: HTML Escape
 // =====================
-function escapeHtml(str) {
-  return str
+function escapeHtml(value) {
+  const text = value === null || value === undefined ? '' : String(value);
+  return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
