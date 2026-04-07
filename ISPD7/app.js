@@ -4,6 +4,7 @@
 const navItems = document.querySelectorAll('.nav-item');
 const pages = document.querySelectorAll('.module-page');
 const quickBtns = document.querySelectorAll('.quick-btn');
+const mainContent = document.getElementById('mainContent');
 const globalSearchInput = document.querySelector('.search-bar input');
 const dashboardActiveMembersStat = document.getElementById('dashboardActiveMembersStat');
 const dashboardHeadmatesStat = document.getElementById('dashboardHeadmatesStat');
@@ -20,6 +21,63 @@ const dashboardCompletionChart = document.getElementById('dashboardCompletionCha
 const dashboardActivityChart = document.getElementById('dashboardActivityChart');
 const dashboardCategoryPieChart = document.getElementById('dashboardCategoryPieChart');
 const dashboardCommunicationPieChart = document.getElementById('dashboardCommunicationPieChart');
+const tagTypeFilter = document.getElementById('tagTypeFilter');
+const clearTagFilterBtn = document.getElementById('clearTagFilterBtn');
+const tagSummary = document.getElementById('tagSummary');
+const tagCloud = document.getElementById('tagCloud');
+const tagResultsGrid = document.getElementById('tagResultsGrid');
+let activeTagFilter = 'all';
+
+function repairSavedCriticalTabState() {
+  try {
+    const criticalModules = ['chat', 'messages', 'health', 'switchboard', 'gallery', 'templates', 'calendar', 'notifications', 'profile', 'settings'];
+    const storageKeys = ['ispd7.hub.state.v1', 'ispd7.hub.state.backup.v1'];
+
+    storageKeys.forEach((key) => {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+
+      const data = JSON.parse(raw);
+      if (!data || typeof data !== 'object') return;
+
+      data.moduleVisibilitySettings = { ...(data.moduleVisibilitySettings || {}) };
+      criticalModules.forEach((name) => {
+        data.moduleVisibilitySettings[name] = true;
+      });
+
+      data.privacySettings = {
+        ...(data.privacySettings || {}),
+        healthVisible: true,
+        historyVisible: true,
+        locationsVisible: true,
+        journalVisible: true,
+        partnersVisible: true
+      };
+
+      localStorage.setItem(key, JSON.stringify(data));
+    });
+  } catch (_err) {
+    // Ignore malformed saved state during reset.
+  }
+}
+
+function applyUrlResetIfRequested() {
+  if (typeof window === 'undefined' || !window.location) return;
+
+  const params = new URLSearchParams(window.location.search || '');
+  if (params.get('reset') !== '1') return;
+
+  repairSavedCriticalTabState();
+  params.delete('reset');
+
+  if (window.history && typeof window.history.replaceState === 'function') {
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+    window.history.replaceState({}, '', nextUrl);
+  }
+}
+
+applyUrlResetIfRequested();
 
 const APP_CONFIG = window.APP_CONFIG || {};
 const API_BASE_URL = String(APP_CONFIG.apiBaseUrl || '').trim().replace(/\/+$/, '');
@@ -319,6 +377,8 @@ function renderDashboardModulePreviews() {
   const templateList = typeof customTemplates === 'object' ? Object.values(customTemplates) : [];
   const historyList = typeof historyEvents !== 'undefined' ? historyEvents : [];
   const accountList = typeof accounts === 'object' ? Object.keys(accounts) : [];
+  const tagRecords = typeof getTaggableProfileRecords === 'function' ? getTaggableProfileRecords() : [];
+  const uniqueTags = [...new Set(tagRecords.flatMap((record) => record.tags || []).map((tag) => normalizeLookupName(tag)).filter(Boolean))];
   const chatThreads = typeof chatMessagesByUser === 'object' ? Object.values(chatMessagesByUser[user] || {}) : [];
   const latestChatEntry = chatThreads.flat().sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))[0];
   const latestMessageSubject = document.querySelector('#page-messages tbody tr td:nth-child(2)')?.textContent?.trim() || 'Inbox overview';
@@ -351,6 +411,11 @@ function renderDashboardModulePreviews() {
       count: itemList.length,
       summary: itemList[0]?.name ? `Latest: ${itemList[0].name}` : 'No items saved yet',
       meta: 'Tagged objects and linked items'
+    },
+    tags: {
+      count: uniqueTags.length,
+      summary: uniqueTags.length ? `Top tags: ${tagRecords.slice(0, 3).flatMap((record) => record.tags).slice(0, 3).join(', ')}` : 'No tags saved yet',
+      meta: 'Cross-profile tag browser'
     },
     journal: {
       count: journalListForUser.length,
@@ -465,7 +530,8 @@ function renderDashboard() {
     const chatCount = typeof chatMessagesByUser === 'object' ? Object.values(chatMessagesByUser[user] || {}).filter((thread) => Array.isArray(thread) && thread.length).length : 0;
 
     if (dashboardHeroTitle) {
-      const welcomeName = (typeof accounts === 'object' && loggedInAccountKey && accounts[loggedInAccountKey]?.name) || user || 'friend';
+      const systemLabel = user === NO_SYSTEM_USER ? '' : user;
+      const welcomeName = (typeof accounts === 'object' && loggedInAccountKey && accounts[loggedInAccountKey]?.name) || systemLabel || 'friend';
       dashboardHeroTitle.textContent = `Welcome back, ${welcomeName}`;
     }
     if (dashboardHeroSubtitle) {
@@ -505,25 +571,69 @@ function renderDashboard() {
     }
 
     renderDashboardModulePreviews();
+    if (typeof renderTagsModule === 'function') renderTagsModule();
   } catch (_err) {
     // Some stores initialize later; dashboard will refresh again after setup.
   }
 }
 
 function navigateTo(module) {
-  if (typeof isSignedIn === 'function' && !isSignedIn() && module !== 'profile') {
-    safeAlert('Please sign in to use the app.');
+  if (typeof isSignedIn === 'function' && !isSignedIn() && module === 'accountFriends') {
+    safeAlert('Please sign in to manage account friends.');
     module = 'profile';
+  }
+
+  if (module !== 'profile' && module !== 'settings' && typeof isModuleEnabled === 'function' && !isModuleEnabled(module)) {
+    safeAlert('That tab is currently turned off in settings.');
+    module = typeof getFirstVisibleModule === 'function' ? getFirstVisibleModule('dashboard') : 'dashboard';
   }
 
   if (module !== 'profile' && typeof canAccessModule === 'function' && !canAccessModule(module)) {
     safeAlert(`That section is hidden for your current trust level.`);
-    module = 'dashboard';
+    module = typeof getFirstVisibleModule === 'function' ? getFirstVisibleModule('dashboard') : 'dashboard';
   }
 
   navItems.forEach(i => i.classList.toggle('active', i.dataset.module === module));
   pages.forEach(p => p.classList.toggle('active', p.id === `page-${module}`));
 
+  const activePage = document.getElementById(`page-${module}`) || document.querySelector('.module-page.active');
+  if (mainContent) {
+    mainContent.scrollTop = 0;
+    if (typeof mainContent.scrollTo === 'function') mainContent.scrollTo(0, 0);
+  }
+  if (typeof document !== 'undefined') {
+    document.documentElement.scrollTop = 0;
+    if (document.body) document.body.scrollTop = 0;
+  }
+  if (activePage && typeof activePage.scrollIntoView === 'function') {
+    try {
+      activePage.scrollIntoView({ block: 'start', inline: 'nearest' });
+    } catch (_err) {
+      activePage.scrollIntoView();
+    }
+  }
+  if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') window.scrollTo(0, 0);
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    window.requestAnimationFrame(() => {
+      if (mainContent) mainContent.scrollTop = 0;
+      if (typeof document !== 'undefined') {
+        document.documentElement.scrollTop = 0;
+        if (document.body) document.body.scrollTop = 0;
+      }
+    });
+  }
+  if (typeof window !== 'undefined' && typeof window.setTimeout === 'function') {
+    window.setTimeout(() => {
+      if (mainContent) mainContent.scrollTop = 0;
+      if (activePage && typeof activePage.scrollIntoView === 'function') {
+        try {
+          activePage.scrollIntoView({ block: 'start', inline: 'nearest' });
+        } catch (_err) {
+          activePage.scrollIntoView();
+        }
+      }
+    }, 0);
+  }
   // Fail-safe: never allow the content area to end up with zero visible pages.
   if (!document.querySelector('.module-page.active')) {
     const fallbackPage = document.getElementById('page-dashboard') || document.querySelector('.module-page');
@@ -721,55 +831,43 @@ const cancelSystemEditorBtn = document.getElementById('cancelSystemEditorBtn');
 const systemEditTrustLevel = document.getElementById('systemEditTrustLevel');
 let editingSystemUser = null;
 let creatingSystemProfile = false;
+const NO_SYSTEM_USER = 'No system';
+const MAX_SYSTEMS_PER_ACCOUNT = 10;
+const MAX_HEADMATES_PER_ACCOUNT = 2000;
 
-const systemProfiles = {
-  Alice: {
-    name: 'Alice',
-    nickname: 'Ali',
-    description: 'Coordinates settings and keeps the hub organized.',
-    tags: 'admin, organizer',
-    customFields: 'Comfort item: Lavender tea',
-    color: '#6c63ff',
-    banner: 'Aurora Admin',
-    profilePhoto: 'A',
-    trustLevel: 'private'
-  },
-  Bob: {
-    name: 'Bob',
-    nickname: 'B',
-    description: 'Moderation focused and helps keep communication clear.',
-    tags: 'moderation, clarity',
-    customFields: 'Strength: De-escalation',
-    color: '#ff6584',
-    banner: 'Guardian Watch',
-    profilePhoto: 'B',
-    trustLevel: 'partners'
-  },
-  Carol: {
-    name: 'Carol',
-    nickname: 'Caz',
-    description: 'Primary support contact for check-ins and follow-up.',
-    tags: 'support, check-ins',
-    customFields: 'Availability: Evenings',
-    color: '#43d9ad',
-    banner: 'Calm Harbor',
-    profilePhoto: 'C',
-    trustLevel: 'trusted'
-  },
-  Dan: {
-    name: 'Dan',
-    nickname: 'D',
-    description: 'Reviews trends and summarizes system activity.',
-    tags: 'analysis, summaries',
-    customFields: 'Focus: Pattern spotting',
-    color: '#f5a623',
-    banner: 'Signal Board',
-    profilePhoto: 'D',
-    trustLevel: 'friends'
+const systemProfiles = {};
+
+function getSystemCountForAccount() {
+  return Object.keys(systemProfiles || {}).length;
+}
+
+function getTotalHeadmateCountForAccount() {
+  return Object.values(headmateProfilesByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+}
+
+function canCreateSystemProfile(additionalSystems = 1, { silent = false } = {}) {
+  const currentCount = getSystemCountForAccount();
+  const allowed = currentCount + Number(additionalSystems || 0) <= MAX_SYSTEMS_PER_ACCOUNT;
+  if (!allowed && !silent) {
+    safeAlert(`Each account can have up to ${MAX_SYSTEMS_PER_ACCOUNT} systems/users in the top-left switcher.`);
   }
-};
+  return allowed;
+}
+
+function canCreateHeadmates(additionalHeadmates = 1, { silent = false } = {}) {
+  const currentCount = getTotalHeadmateCountForAccount();
+  const allowed = currentCount + Number(additionalHeadmates || 0) <= MAX_HEADMATES_PER_ACCOUNT;
+  if (!allowed && !silent) {
+    const remaining = Math.max(0, MAX_HEADMATES_PER_ACCOUNT - currentCount);
+    safeAlert(`This account can store up to ${MAX_HEADMATES_PER_ACCOUNT} total headmates across all systems. You can add ${remaining} more right now.`);
+  }
+  return allowed;
+}
 
 function ensureSystemProfile(userName, initial, color) {
+  if (!userName || userName === NO_SYSTEM_USER) return;
   if (!systemProfiles[userName]) {
     systemProfiles[userName] = {
       name: userName,
@@ -783,6 +881,50 @@ function ensureSystemProfile(userName, initial, color) {
       trustLevel: 'private'
     };
   }
+}
+
+function setNoSystemSelected() {
+  applyPhotoStyle(currentAvatar, '', '?', '#888');
+  if (currentUsername) currentUsername.textContent = NO_SYSTEM_USER;
+  if (systemActiveAvatar) applyPhotoStyle(systemActiveAvatar, '', '?', '#888');
+  if (systemActiveName) systemActiveName.textContent = NO_SYSTEM_USER;
+}
+
+function migrateUserScopedData(fromUser, toUser) {
+  const source = String(fromUser || '').trim();
+  const target = String(toUser || '').trim();
+  if (!source || !target || source === target) return;
+
+  const stores = [
+    typeof headmateProfilesByUser !== 'undefined' ? headmateProfilesByUser : null,
+    typeof headmateFoldersByUser !== 'undefined' ? headmateFoldersByUser : null,
+    typeof subsystemsByUser !== 'undefined' ? subsystemsByUser : null,
+    typeof chatMessagesByUser !== 'undefined' ? chatMessagesByUser : null,
+    typeof medicationsByUser !== 'undefined' ? medicationsByUser : null,
+    typeof medicationCheckinsByUser !== 'undefined' ? medicationCheckinsByUser : null,
+    typeof journalEntriesByUser !== 'undefined' ? journalEntriesByUser : null,
+    typeof journalShortcutsByUser !== 'undefined' ? journalShortcutsByUser : null
+  ].filter(Boolean);
+
+  stores.forEach((store) => {
+    if (!(source in store)) return;
+    if (!(target in store)) {
+      store[target] = store[source];
+      delete store[source];
+      return;
+    }
+
+    if (Array.isArray(store[source]) && Array.isArray(store[target])) {
+      store[target] = [...store[source], ...store[target]];
+      delete store[source];
+      return;
+    }
+
+    if (typeof store[source] === 'object' && typeof store[target] === 'object') {
+      store[target] = { ...store[source], ...store[target] };
+      delete store[source];
+    }
+  });
 }
 
 function applyUserSelection(user, initial, color, activeOption) {
@@ -849,11 +991,60 @@ function createUserOption(name, initial, color) {
   return option;
 }
 
+function rebuildUserDropdownOptions(preferredUser = '') {
+  if (!userDropdown) return;
+
+  userDropdown.querySelectorAll('.user-option[data-user]').forEach((option) => option.remove());
+  const addBtn = document.getElementById('addUserBtn');
+  const separator = userDropdown.querySelector('hr');
+
+  Object.entries(systemProfiles).forEach(([userName, profile]) => {
+    const displayName = String(profile?.name || userName).trim() || userName;
+    const initial = (profile?.profilePhoto || displayName[0] || '?').trim()[0]?.toUpperCase() || '?';
+    const color = profile?.color || '#6c63ff';
+    const option = createUserOption(userName, initial, color);
+    userDropdown.insertBefore(option, separator || addBtn || null);
+  });
+
+  const savedName = String(preferredUser || '').trim();
+  const nextOption = Array.from(userDropdown.querySelectorAll('.user-option[data-user]')).find((option) => option.dataset.user === savedName)
+    || userDropdown.querySelector('.user-option[data-user]');
+
+  if (!nextOption) {
+    setNoSystemSelected();
+    return;
+  }
+
+  document.querySelectorAll('.user-option[data-user]').forEach((option) => {
+    option.classList.toggle('active', option === nextOption);
+  });
+
+  const nextUser = nextOption.dataset.user;
+  const nextInitial = nextOption.dataset.initial || nextUser[0]?.toUpperCase() || '?';
+  const nextColor = nextOption.dataset.color || systemProfiles[nextUser]?.color || '#6c63ff';
+  const nextPhoto = systemProfiles[nextUser]?.profilePhoto || nextInitial;
+  applyPhotoStyle(currentAvatar, nextPhoto, nextInitial, nextColor);
+  if (currentUsername) currentUsername.textContent = nextUser;
+  if (systemActiveAvatar) applyPhotoStyle(systemActiveAvatar, nextPhoto, nextInitial, nextColor);
+  if (systemActiveName) systemActiveName.textContent = nextUser;
+}
+
 function renderSystemProfiles() {
   if (!systemProfilesGrid) return;
 
-  const userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
+  let userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
   const activeUser = currentUsername?.textContent?.trim();
+
+  if (!userOptions.length && Object.keys(systemProfiles).length) {
+    rebuildUserDropdownOptions(activeUser && activeUser !== NO_SYSTEM_USER ? activeUser : Object.keys(systemProfiles)[0]);
+    userOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
+  }
+
+  if (!userOptions.length) {
+    systemProfilesGrid.innerHTML = '<p class="headmate-hint" style="margin:0">No systems yet. Create one to start organizing headmates, locations, and other profiles.</p>';
+    setNoSystemSelected();
+    return;
+  }
 
   const cardsHtml = userOptions.map((opt) => {
     const user = opt.dataset.user;
@@ -926,6 +1117,7 @@ document.querySelectorAll('.user-option[data-user]').forEach(opt => {
 
 document.getElementById('addUserBtn').addEventListener('click', (e) => {
   e.stopPropagation();
+  if (!canCreateSystemProfile(1)) return;
   const defaultName = `User ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
   const name = safePrompt('Enter new user name:', defaultName);
   if (!name || !name.trim()) return;
@@ -933,14 +1125,17 @@ document.getElementById('addUserBtn').addEventListener('click', (e) => {
   const initial = trimmed[0].toUpperCase();
   const colors = ['#6c63ff','#ff6584','#43d9ad','#f5a623','#a29bfe','#fd79a8','#0984e3','#e17055'];
   const color = colors[Math.floor(Math.random() * colors.length)];
+  const shouldMigrateUnassigned = (currentUsername?.textContent || '').trim() === NO_SYSTEM_USER;
 
   const opt = createUserOption(trimmed, initial, color);
   ensureSystemProfile(trimmed, initial, color);
+  if (shouldMigrateUnassigned) migrateUserScopedData(NO_SYSTEM_USER, trimmed);
 
   const addBtn = document.getElementById('addUserBtn');
-  userDropdown.insertBefore(opt, addBtn.previousElementSibling.nextSibling);
+  userDropdown.insertBefore(opt, addBtn || null);
   userDropdown.classList.remove('open');
   renderSystemProfiles();
+  applyUserSelection(trimmed, initial, color, opt);
 });
 
 if (systemProfilesGrid) {
@@ -980,8 +1175,8 @@ if (systemProfilesGrid) {
       systemEditDescription.value = profile.description;
       if (systemEditTags) systemEditTags.value = profile.tags || '';
       if (systemEditCustomFields) systemEditCustomFields.value = profile.customFields || '';
-      systemEditColor.value = profile.color;
-      if (systemEditColorPicker) systemEditColorPicker.value = normalizeHexColor(profile.color, '#6c63ff');
+      systemEditColor.value = normalizeHexColor(profile.color, '#6c63ff');
+      syncColorValuePill(systemEditColor);
       systemEditBanner.value = profile.banner;
       systemEditPhoto.value = profile.profilePhoto;
       if (systemEditTrustLevel) systemEditTrustLevel.value = profile.trustLevel || 'private';
@@ -995,7 +1190,7 @@ if (systemProfilesGrid) {
       if (!safeConfirm(`Delete profile for ${user}?`)) return;
 
       delete systemProfiles[user];
-      delete headmateProfilesByUser[user];
+      migrateUserScopedData(user, NO_SYSTEM_USER);
       Object.values(partnerProfiles).forEach((partner) => {
         if (normalizeLookupName(partner.linkedSystemUser) === normalizeLookupName(user)) {
           partner.linkedSystemUser = 'Not set';
@@ -1005,13 +1200,9 @@ if (systemProfilesGrid) {
 
       const remainingOptions = Array.from(document.querySelectorAll('.user-option[data-user]'));
       if (!remainingOptions.length) {
-        applyPhotoStyle(currentAvatar, '', '?', '#888');
-        currentUsername.textContent = 'No user';
-        if (systemActiveAvatar) {
-          applyPhotoStyle(systemActiveAvatar, '', '?', '#888');
-        }
-        if (systemActiveName) systemActiveName.textContent = 'No user';
+        setNoSystemSelected();
         renderSystemProfiles();
+        if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
         return;
       }
 
@@ -1032,16 +1223,17 @@ if (systemProfilesGrid) {
 
 if (addSystemProfileBtn) {
   addSystemProfileBtn.addEventListener('click', () => {
+    if (!canCreateSystemProfile(1)) return;
     editingSystemUser = null;
     creatingSystemProfile = true;
     const defaultName = `Profile ${document.querySelectorAll('.user-option[data-user]').length + 1}`;
     systemEditName.value = defaultName;
     systemEditNickname.value = defaultName[0].toUpperCase();
-    systemEditDescription.value = 'New user profile';
+    systemEditDescription.value = 'No description set.';
     if (systemEditTags) systemEditTags.value = 'Not set';
     if (systemEditCustomFields) systemEditCustomFields.value = 'Not set';
     systemEditColor.value = '#6c63ff';
-    if (systemEditColorPicker) systemEditColorPicker.value = '#6c63ff';
+    syncColorValuePill(systemEditColor);
     systemEditBanner.value = `${defaultName} Banner`;
     systemEditPhoto.value = defaultName[0].toUpperCase();
     if (systemEditTrustLevel) systemEditTrustLevel.value = 'private';
@@ -1052,6 +1244,7 @@ if (addSystemProfileBtn) {
 
 if (addSystemFromTemplateBtn) {
   addSystemFromTemplateBtn.addEventListener('click', () => {
+    if (!canCreateSystemProfile(1)) return;
     const template = pickTemplateForTarget('system');
     if (!template) return;
     editingSystemUser = null;
@@ -1060,13 +1253,15 @@ if (addSystemFromTemplateBtn) {
     const templatedName = (template.name || '').trim() || fallbackName;
     systemEditName.value = templatedName;
     systemEditNickname.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
-    systemEditDescription.value = template.description || 'New user profile';
+    systemEditDescription.value = template.description || 'No description set.';
     if (systemEditTags) systemEditTags.value = template.category || 'Not set';
     if (systemEditCustomFields) systemEditCustomFields.value = template.defaultContent || 'Not set';
-    systemEditColor.value = template.color || '#6c63ff';
-    if (systemEditColorPicker) systemEditColorPicker.value = normalizeHexColor(systemEditColor.value, '#6c63ff');
+    systemEditColor.value = normalizeHexColor(template.color || '#6c63ff', '#6c63ff');
+    syncColorValuePill(systemEditColor);
     systemEditBanner.value = template.banner || `${templatedName} Banner`;
-    systemEditPhoto.value = template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
+    systemEditPhoto.value = template.profilePhoto || template.name?.[0]?.toUpperCase() || templatedName[0].toUpperCase();
+    primeStoredMediaInput(systemEditBanner);
+    primeStoredMediaInput(systemEditPhoto);
     systemProfileEditor.hidden = false;
     systemProfileEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
@@ -1087,8 +1282,8 @@ if (saveSystemEditorBtn) {
       tags: (systemEditTags?.value || '').trim() || 'Not set',
       customFields: (systemEditCustomFields?.value || '').trim() || 'Not set',
       color: (systemEditColor.value || '').trim() || '#6c63ff',
-      banner: (systemEditBanner.value || '').trim() || `${newName} Banner`,
-      profilePhoto: (systemEditPhoto.value || '').trim() || newName[0].toUpperCase(),
+      banner: getEditorInputValue(systemEditBanner) || `${newName} Banner`,
+      profilePhoto: getEditorInputValue(systemEditPhoto) || newName[0].toUpperCase(),
       trustLevel: (systemEditTrustLevel?.value) || 'private'
     };
 
@@ -1105,24 +1300,26 @@ if (saveSystemEditorBtn) {
 
     let option = existingOpt;
     if (!option) {
+      if (!canCreateSystemProfile(1)) return;
       const addBtn = document.getElementById('addUserBtn');
       option = createUserOption(newName, newName[0].toUpperCase(), draft.color);
-      if (addBtn) userDropdown.insertBefore(option, addBtn.previousElementSibling.nextSibling);
+      if (addBtn) userDropdown.insertBefore(option, addBtn);
     }
 
     const previousName = editingSystemUser;
     if (previousName && previousName !== newName) {
       delete systemProfiles[previousName];
-      if (headmateProfilesByUser[previousName]) {
-        headmateProfilesByUser[newName] = headmateProfilesByUser[previousName];
-        delete headmateProfilesByUser[previousName];
-      }
+      migrateUserScopedData(previousName, newName);
       Object.values(partnerProfiles).forEach((partner) => {
         if (normalizeLookupName(partner.linkedSystemUser) === normalizeLookupName(previousName)) {
           partner.linkedSystemUser = newName;
           partner.linkedProfiles = String(partner.linkedProfiles || 'Not set').replaceAll(`System: ${previousName}`, `System: ${newName}`);
         }
       });
+    }
+
+    if (!previousName && (currentUsername?.textContent || '').trim() === NO_SYSTEM_USER) {
+      migrateUserScopedData(NO_SYSTEM_USER, newName);
     }
 
     systemProfiles[newName] = draft;
@@ -1435,6 +1632,256 @@ if (chatMessages) {
 }
 
 // =====================
+// Messages: Direct messages between account friends
+// =====================
+const messagesFriendSelect = document.getElementById('messagesFriendSelect');
+const messagesTableBody = document.getElementById('messagesTableBody');
+const directMessagesHeader = document.getElementById('directMessagesHeader');
+const directMessagesList = document.getElementById('directMessagesList');
+const directMessageInputBar = document.getElementById('directMessageInputBar');
+const directMessageInput = document.getElementById('directMessageInput');
+const sendDirectMessageBtn = document.getElementById('sendDirectMessageBtn');
+const openFriendsTabFromMessagesBtn = document.getElementById('openFriendsTabFromMessagesBtn');
+
+const directMessagesByAccount = {};
+let selectedDirectMessageFriend = '';
+
+function ensureDirectMessageAccountStore(accountUsername = loggedInAccountKey || '') {
+  const cleanAccount = String(accountUsername || '').trim().toLowerCase();
+  if (!cleanAccount) return {};
+  if (!directMessagesByAccount[cleanAccount]) directMessagesByAccount[cleanAccount] = {};
+  return directMessagesByAccount[cleanAccount];
+}
+
+function getDirectMessageThread(friendUsername, accountUsername = loggedInAccountKey || '') {
+  const cleanFriend = String(friendUsername || '').trim().toLowerCase();
+  if (!cleanFriend) return [];
+  const store = ensureDirectMessageAccountStore(accountUsername);
+  if (!store[cleanFriend]) store[cleanFriend] = [];
+  return store[cleanFriend];
+}
+
+function formatDirectMessageTime(ts, compact = false) {
+  if (!ts) return '—';
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return '—';
+  return compact
+    ? date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : date.toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+
+function markDirectMessagesRead(friendUsername = '') {
+  const account = getCurrentAccountRecord();
+  if (!account) return false;
+
+  let changed = false;
+  getDirectMessageThread(friendUsername, account.username).forEach((message) => {
+    if (message.direction === 'incoming' && !message.read) {
+      message.read = true;
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function openDirectMessagesWith(friendUsername = '') {
+  const cleanFriend = String(friendUsername || '').trim().toLowerCase();
+  selectedDirectMessageFriend = cleanFriend;
+  const changed = cleanFriend ? markDirectMessagesRead(cleanFriend) : false;
+  renderMessagesModule();
+  if (changed) scheduleHubStatePersist();
+}
+
+function renderMessagesModule() {
+  if (!messagesTableBody || !directMessagesHeader || !directMessagesList || !messagesFriendSelect) return;
+
+  const account = getCurrentAccountRecord();
+  if (!account) {
+    messagesFriendSelect.innerHTML = '<option value="">Select a friend</option>';
+    messagesTableBody.innerHTML = '<tr><td colspan="4" class="empty-state-cell">Sign in to message your friends.</td></tr>';
+    directMessagesHeader.innerHTML = '<span class="chat-placeholder-text">Sign in to open a friend conversation.</span>';
+    directMessagesList.innerHTML = '<div class="chat-no-messages">Messages are available after sign-in.</div>';
+    if (directMessageInputBar) directMessageInputBar.hidden = true;
+    return;
+  }
+
+  const friendEntries = getAccountFriendEntries(account)
+    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  if (!friendEntries.length) {
+    selectedDirectMessageFriend = '';
+    messagesFriendSelect.innerHTML = '<option value="">Select a friend</option>';
+    messagesTableBody.innerHTML = '<tr><td colspan="4" class="empty-state-cell">Add at least one friend to start messaging.</td></tr>';
+    directMessagesHeader.innerHTML = '<span class="chat-placeholder-text">Select a friend to open a conversation.</span>';
+    directMessagesList.innerHTML = '<div class="chat-no-messages">Messages are reserved for your account friends.</div>';
+    if (directMessageInputBar) directMessageInputBar.hidden = true;
+    return;
+  }
+
+  const summaries = friendEntries.map((entry) => {
+    const thread = getDirectMessageThread(entry.username, account.username);
+    const lastMessage = thread.length ? thread[thread.length - 1] : null;
+    const unreadCount = thread.filter((message) => message.direction === 'incoming' && !message.read).length;
+    return {
+      ...entry,
+      thread,
+      lastMessage,
+      unreadCount
+    };
+  }).sort((a, b) => (Number(b.lastMessage?.ts || 0) - Number(a.lastMessage?.ts || 0)) || String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  if (!summaries.some((entry) => entry.username === selectedDirectMessageFriend)) {
+    selectedDirectMessageFriend = summaries[0]?.username || '';
+  }
+
+  messagesFriendSelect.innerHTML = summaries.map((entry) => `
+    <option value="${escapeHtml(entry.username)}"${selectedDirectMessageFriend === entry.username ? ' selected' : ''}>${escapeHtml(entry.name)} (@${escapeHtml(entry.username)})</option>
+  `).join('');
+
+  messagesTableBody.innerHTML = summaries.map((entry) => {
+    const previewRaw = entry.lastMessage ? String(entry.lastMessage.text || 'No message') : 'No messages yet.';
+    const preview = truncatePreview(previewRaw, 56);
+    const statusMarkup = entry.unreadCount
+      ? `<span class="badge green">${entry.unreadCount} unread</span>`
+      : '<span class="badge">Ready</span>';
+    return `
+      <tr data-message-friend="${escapeHtml(entry.username)}" class="${selectedDirectMessageFriend === entry.username ? 'selected' : ''}">
+        <td>${escapeHtml(entry.name)}</td>
+        <td>${escapeHtml(preview)}</td>
+        <td>${escapeHtml(entry.lastMessage ? formatDirectMessageTime(entry.lastMessage.ts, true) : '—')}</td>
+        <td>${statusMarkup}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const activeFriend = summaries.find((entry) => entry.username === selectedDirectMessageFriend) || summaries[0];
+  if (!activeFriend) {
+    directMessagesHeader.innerHTML = '<span class="chat-placeholder-text">Select a friend to open a conversation.</span>';
+    directMessagesList.innerHTML = '<div class="chat-no-messages">No friend messages yet.</div>';
+    if (directMessageInputBar) directMessageInputBar.hidden = true;
+    return;
+  }
+
+  selectedDirectMessageFriend = activeFriend.username;
+  directMessagesHeader.innerHTML = `
+    ${renderAvatarMarkup(activeFriend.profilePhoto || activeFriend.name[0]?.toUpperCase() || '?', activeFriend.name[0]?.toUpperCase() || '?', activeFriend.color || '#6c63ff')}
+    <div class="chat-convo-header-info">
+      <strong>${escapeHtml(activeFriend.name)}</strong>
+      <span>@${escapeHtml(activeFriend.username)} • ${escapeHtml(activeFriend.trustLevel || 'friends')} friend</span>
+    </div>
+  `;
+
+  if (!activeFriend.thread.length) {
+    directMessagesList.innerHTML = `<div class="chat-no-messages">No messages with @${escapeHtml(activeFriend.username)} yet. Send the first one below.</div>`;
+  } else {
+    const accountName = account.name || account.username || 'You';
+    const accountPhoto = account.profilePhoto || accountName[0]?.toUpperCase() || 'U';
+    const accountColor = account.color || '#6c63ff';
+    directMessagesList.innerHTML = activeFriend.thread.map((message) => {
+      const isSelf = message.direction !== 'incoming';
+      const authorName = isSelf ? accountName : activeFriend.name;
+      const avatarMarkup = renderAvatarMarkup(
+        isSelf ? accountPhoto : (activeFriend.profilePhoto || activeFriend.name[0]?.toUpperCase() || '?'),
+        authorName[0]?.toUpperCase() || '?',
+        isSelf ? accountColor : (activeFriend.color || '#6c63ff'),
+        'sm'
+      );
+      return `
+        <div class="msg ${isSelf ? 'sent' : 'received'}" data-direct-message-id="${escapeHtml(message.id || '')}">
+          ${avatarMarkup}
+          <div class="msg-body">
+            <div class="msg-author-row"><strong>${escapeHtml(authorName)}</strong><span class="msg-time-inline">${escapeHtml(formatDirectMessageTime(message.ts))}</span></div>
+            <div class="bubble">${renderMarkdown(message.text || '')}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (directMessageInputBar) directMessageInputBar.hidden = false;
+  if (directMessageInput) directMessageInput.placeholder = `Send a message to @${activeFriend.username}...`;
+  directMessagesList.scrollTop = directMessagesList.scrollHeight;
+}
+
+function sendDirectMessage() {
+  const account = getCurrentAccountRecord();
+  if (!account || !directMessageInput) return;
+
+  const friendUsername = String(selectedDirectMessageFriend || messagesFriendSelect?.value || '').trim().toLowerCase();
+  const text = directMessageInput.value.trim();
+  if (!friendUsername) {
+    safeAlert('Select one of your friends first.');
+    return;
+  }
+  if (!text) return;
+
+  const friendEntry = getAccountFriendEntries(account).find((entry) => entry.username === friendUsername);
+  if (!friendEntry) {
+    safeAlert('Messages can only be sent to people in your friends list.');
+    return;
+  }
+
+  const timestamp = Date.now();
+  const thread = getDirectMessageThread(friendUsername, account.username);
+  thread.push({
+    id: `dm-${timestamp}-${Math.floor(Math.random() * 10000)}`,
+    direction: 'outgoing',
+    from: account.username,
+    to: friendUsername,
+    text,
+    read: true,
+    ts: timestamp
+  });
+
+  if (!USE_BACKEND_AUTH && accounts[friendUsername]) {
+    const friendThread = getDirectMessageThread(account.username, friendUsername);
+    friendThread.push({
+      id: `dm-${timestamp}-${Math.floor(Math.random() * 10000)}`,
+      direction: 'incoming',
+      from: account.username,
+      to: friendUsername,
+      text,
+      read: false,
+      ts: timestamp
+    });
+  }
+
+  directMessageInput.value = '';
+  renderMessagesModule();
+  scheduleHubStatePersist();
+}
+
+if (messagesTableBody) {
+  messagesTableBody.addEventListener('click', (event) => {
+    const row = event.target.closest('[data-message-friend]');
+    if (!row) return;
+    openDirectMessagesWith(row.dataset.messageFriend || '');
+  });
+}
+
+if (messagesFriendSelect) {
+  messagesFriendSelect.addEventListener('change', () => {
+    openDirectMessagesWith(messagesFriendSelect.value || '');
+  });
+}
+
+if (sendDirectMessageBtn) sendDirectMessageBtn.addEventListener('click', sendDirectMessage);
+if (directMessageInput) {
+  directMessageInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    sendDirectMessage();
+  });
+}
+
+if (openFriendsTabFromMessagesBtn) {
+  openFriendsTabFromMessagesBtn.addEventListener('click', () => {
+    navigateTo('accountFriends');
+  });
+}
+
+// =====================
 // Partners: Global Profile Manager
 // =====================
 const partnersTableBody = document.getElementById('partnersTableBody');
@@ -1449,6 +1896,7 @@ const addPartnerFromTemplateBtn = document.getElementById('addPartnerFromTemplat
 const editPartnerBtn = document.getElementById('editPartnerBtn');
 const linkPartnerAccountBtn = document.getElementById('linkPartnerAccountBtn');
 const linkPartnerAlterBtn = document.getElementById('linkPartnerAlterBtn');
+const linkPartnerConnectionBtn = document.getElementById('linkPartnerConnectionBtn');
 const linkPartnerProfileBtn = document.getElementById('linkPartnerProfileBtn');
 const addPartnerHeadmateBtn = document.getElementById('addPartnerHeadmateBtn');
 const savePartnerBtn = document.getElementById('savePartnerBtn');
@@ -1475,32 +1923,7 @@ const partnerFieldSchema = [
   { key: 'color', label: 'Color' }
 ];
 
-const partnerProfiles = {
-  alex: {
-    name: 'Alex',
-    connections: 'Rowan, Sky',
-    linkedAlters: 'Alex, Sky',
-    partnerHeadmates: 'Jun (Host), Mira (Protector)',
-    linkedProfiles: 'Headmate: Alex, Location: Front Room',
-    description: 'Central planner and emotional anchor.',
-    relationshipType: 'Nesting',
-    profilePhoto: 'A',
-    banner: 'Shared Orbit',
-    color: '#6c63ff'
-  },
-  rowan: {
-    name: 'Rowan',
-    connections: 'Alex',
-    linkedAlters: 'Rowan',
-    partnerHeadmates: 'Ember (Support)',
-    linkedProfiles: 'Headmate: Rowan, Subsystem: Shield Unit',
-    description: 'Stability-focused with strong boundary skills.',
-    relationshipType: 'Anchor',
-    profilePhoto: 'R',
-    banner: 'Steady Flame',
-    color: '#ff6584'
-  }
-};
+const partnerProfiles = {};
 
 let selectedPartnerKey = null;
 let creatingPartner = false;
@@ -1577,6 +2000,7 @@ function renderPartnerEditorFields(profile) {
   }).join('');
 
   bindColorPickers(partnerEditorFields);
+  bindAutoGrowingTextareas(partnerEditorFields);
 }
 
 function readPartnerEditorValues(baseProfile) {
@@ -1584,7 +2008,7 @@ function readPartnerEditorValues(baseProfile) {
   partnerFieldSchema.forEach((field) => {
     const input = document.getElementById(`partnerEdit_${field.key}`);
     if (!input) return;
-    const value = (input.value || '').trim();
+    const value = getEditorInputValue(input);
     updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
   });
   updated.fieldPrivacy = readFieldPrivacy(partnerFieldSchema, 'partnerEdit', baseProfile);
@@ -1624,11 +2048,7 @@ function renderPartnerProfile(profile) {
 }
 
 function parsePartnerList(profile) {
-  return String(profile.connections || '')
-    .split(',')
-    .map((name) => name.trim())
-    .filter(Boolean)
-    .filter((name) => name.toLowerCase() !== 'not set');
+  return parseLinkedTextList(profile?.connections);
 }
 
 function parsePartnerHeadmateEntries(profile) {
@@ -1733,67 +2153,139 @@ function openPartnerHeadmateProfile(profile, headmateNameOrKey, userNameHint = '
 function renderPartnersDiagram() {
   if (!partnersDiagramCanvas) return;
 
-  const entries = Object.entries(partnerProfiles);
+  const entries = Object.entries(partnerProfiles)
+    .filter(([, profile]) => String(profile?.name || '').trim());
+
   if (!entries.length) {
     partnersDiagramCanvas.innerHTML = '<div class="headmate-hint" style="padding:14px">Add partners to generate the diagram.</div>';
     return;
   }
 
   const width = Math.max(680, partnersDiagramCanvas.clientWidth || 680);
-  const height = 380;
+  const ringCapacities = [];
+  let remaining = entries.length;
+  let ringIndex = 0;
+  while (remaining > 0) {
+    const capacity = 6 + ringIndex * 4;
+    ringCapacities.push(Math.min(capacity, remaining));
+    remaining -= capacity;
+    ringIndex += 1;
+  }
+
+  const ringCount = ringCapacities.length;
+  const height = Math.max(400, 320 + Math.max(0, ringCount - 1) * 108);
   const centerX = width / 2;
   const centerY = height / 2;
-  const radius = Math.max(110, Math.min(width, height) * 0.32);
+  const maxRadius = Math.max(112, Math.min(width / 2 - 94, height / 2 - 82));
+  const baseRadius = ringCount > 1
+    ? Math.max(104, maxRadius - (ringCount - 1) * 84)
+    : Math.max(112, Math.min(maxRadius, 136));
+  const radiusStep = ringCount > 1
+    ? Math.max(74, Math.min(96, (maxRadius - baseRadius) / Math.max(1, ringCount - 1)))
+    : 0;
+  const activeSystem = systemProfiles[getActiveUserName()] || {};
+  const palette = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#0984e3', '#e17055', '#a29bfe', '#00b894'];
   const selfNode = {
     key: '__self__',
-    name: 'Self',
+    name: activeSystem.name || 'You',
+    type: 'Center',
+    color: normalizeHexColor(activeSystem.color || '#6c63ff', '#6c63ff'),
     x: centerX,
     y: centerY
   };
 
-  const nodes = entries.map(([key, profile], index) => {
-    const angle = (Math.PI * 2 * index) / entries.length - Math.PI / 2;
-    return {
-      key,
-      name: profile.name,
-      type: profile.relationshipType || 'Unspecified',
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius
-    };
+  const nodes = [];
+  let entryCursor = 0;
+
+  ringCapacities.forEach((count, currentRing) => {
+    const radius = ringCount === 1
+      ? baseRadius
+      : Math.min(maxRadius, baseRadius + currentRing * radiusStep);
+
+    for (let offset = 0; offset < count; offset += 1) {
+      const [key, profile] = entries[entryCursor];
+      const angle = (Math.PI * 2 * offset) / count - Math.PI / 2 + (currentRing % 2 ? Math.PI / Math.max(count, 2) : 0);
+      const fallbackColor = palette[entryCursor % palette.length];
+      const fullName = String(profile.name || key).trim();
+
+      nodes.push({
+        key,
+        name: fullName,
+        shortName: fullName.length > 18 ? `${fullName.slice(0, 15)}…` : fullName,
+        type: profile.relationshipType || 'Unspecified',
+        color: normalizeHexColor(profile.color || fallbackColor, fallbackColor),
+        x: centerX + Math.cos(angle) * radius,
+        y: centerY + Math.sin(angle) * radius
+      });
+
+      entryCursor += 1;
+    }
   });
 
-  const byName = new Map(nodes.map((node) => [node.name.toLowerCase(), node]));
+  const byName = new Map(nodes.map((node) => [normalizeLookupName(node.name), node]));
   const edges = [];
   const edgeSeen = new Set();
 
-  // Always connect each partner to the central self node.
   nodes.forEach((node) => {
     edges.push({
+      kind: 'self',
       from: selfNode,
       to: node,
-      label: node.type || 'Partner'
+      label: '',
+      color: node.color
     });
   });
 
   entries.forEach(([key, profile]) => {
     const from = nodes.find((node) => node.key === key);
     if (!from) return;
+
     parsePartnerList(profile).forEach((partnerName) => {
-      const to = byName.get(partnerName.toLowerCase());
+      const to = byName.get(normalizeLookupName(partnerName));
       if (!to || to.key === from.key) return;
+
       const edgeKey = [from.key, to.key].sort().join('|');
       if (edgeSeen.has(edgeKey)) return;
       edgeSeen.add(edgeKey);
-      edges.push({ from, to, label: profile.relationshipType || 'Link' });
+
+      edges.push({
+        kind: 'connection',
+        from,
+        to,
+        label: 'Shared link',
+        color: from.color
+      });
     });
   });
 
-  const edgeSvg = edges.map((edge) => {
-    const mx = (edge.from.x + edge.to.x) / 2;
-    const my = (edge.from.y + edge.to.y) / 2;
+  const edgeSvg = edges.map((edge, index) => {
+    const dx = edge.to.x - edge.from.x;
+    const dy = edge.to.y - edge.from.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const midX = (edge.from.x + edge.to.x) / 2;
+    const midY = (edge.from.y + edge.to.y) / 2;
+    const isConnection = edge.kind === 'connection';
+    const normalX = -dy / length;
+    const normalY = dx / length;
+    const curve = isConnection ? Math.min(38, length * 0.16) : 0;
+    const controlX = midX + normalX * curve;
+    const controlY = midY + normalY * curve;
+    const label = String(edge.label || '').trim();
+    const safeLabel = label.length > 18 ? `${label.slice(0, 15)}…` : label;
+    const labelX = isConnection ? (edge.from.x + edge.to.x + controlX) / 3 : midX;
+    const labelY = isConnection ? (edge.from.y + edge.to.y + controlY) / 3 : midY;
+    const labelWidth = Math.max(76, safeLabel.length * 7.2 + 18);
+    const pathData = isConnection
+      ? `M ${edge.from.x} ${edge.from.y} Q ${controlX} ${controlY} ${edge.to.x} ${edge.to.y}`
+      : `M ${edge.from.x} ${edge.from.y} L ${edge.to.x} ${edge.to.y}`;
+
     return `
-      <line class="partners-edge" x1="${edge.from.x}" y1="${edge.from.y}" x2="${edge.to.x}" y2="${edge.to.y}" />
-      <text class="partners-edge-label" x="${mx}" y="${my - 4}">${escapeHtml(edge.label)}</text>
+      <g>
+        <title>${escapeHtml(label ? `${edge.from.name} → ${edge.to.name}: ${label}` : `${edge.from.name} → ${edge.to.name}`)}</title>
+        <path class="partners-edge ${isConnection ? 'partners-edge--connection' : 'partners-edge--self'}" d="${pathData}" style="stroke:${edge.color}" />
+        ${safeLabel ? `<rect class="partners-edge-label-bg" x="${labelX - labelWidth / 2}" y="${labelY - 18}" width="${labelWidth}" height="18" rx="10" ry="10" style="stroke:${edge.color}; opacity:${isConnection ? '0.94' : '0.82'}" />
+        <text class="partners-edge-label" x="${labelX}" y="${labelY - 5}">${escapeHtml(safeLabel)}</text>` : ''}
+      </g>
     `;
   }).join('');
 
@@ -1803,23 +2295,39 @@ function renderPartnersDiagram() {
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase() || '')
       .join('') || 'P';
+
     return `
-      <g data-diagram-partner="${node.key}">
-        <circle class="partners-node ${selectedPartnerKey === node.key ? 'selected' : ''}" cx="${node.x}" cy="${node.y}" r="28" />
+      <g class="partners-node-group" data-diagram-partner="${node.key}">
+        <title>${escapeHtml(`${node.name} • ${node.type}`)}</title>
+        <circle class="partners-node ${selectedPartnerKey === node.key ? 'selected' : ''}" cx="${node.x}" cy="${node.y}" r="29" style="fill: color-mix(in srgb, ${node.color} 24%, var(--surface) 76%); stroke:${node.color};" />
         <text class="partners-node-label" x="${node.x}" y="${node.y + 4}">${escapeHtml(initials)}</text>
-        <text class="partners-node-label" x="${node.x}" y="${node.y + 46}">${escapeHtml(node.name)}</text>
+        <text class="partners-node-label partners-node-label--name" x="${node.x}" y="${node.y + 49}">${escapeHtml(node.shortName)}</text>
+        <text class="partners-node-label partners-node-label--type" x="${node.x}" y="${node.y + 63}">${escapeHtml(node.type)}</text>
       </g>
     `;
   }).join('');
 
   const selfNodeSvg = `
     <g data-diagram-self="true">
-      <circle class="partners-node self" cx="${selfNode.x}" cy="${selfNode.y}" r="34" />
-      <text class="partners-node-label" x="${selfNode.x}" y="${selfNode.y + 4}">SELF</text>
+      <title>${escapeHtml(selfNode.name)}</title>
+      <circle class="partners-node self" cx="${selfNode.x}" cy="${selfNode.y}" r="35" style="stroke:${selfNode.color}" />
+      <text class="partners-node-label" x="${selfNode.x}" y="${selfNode.y + 3}">YOU</text>
+      <text class="partners-node-label partners-node-label--type" x="${selfNode.x}" y="${selfNode.y + 50}">${escapeHtml(selfNode.name)}</text>
     </g>
   `;
 
-  partnersDiagramCanvas.innerHTML = `<svg class="partners-diagram-svg" viewBox="0 0 ${width} ${height}">${edgeSvg}${selfNodeSvg}${nodeSvg}</svg>`;
+  const connectionCount = edges.filter((edge) => edge.kind === 'connection').length;
+  const legendMarkup = `
+    <div class="partners-diagram-legend">
+      <span class="partners-diagram-chip"><strong>${nodes.length}</strong> partner${nodes.length === 1 ? '' : 's'}</span>
+      <span class="partners-diagram-chip"><strong>${connectionCount}</strong> shared link${connectionCount === 1 ? '' : 's'}</span>
+      <span class="partners-diagram-chip">Solid lines = your system</span>
+      <span class="partners-diagram-chip">Dashed lines = partner links</span>
+      <span class="partners-diagram-chip">Click a node to open that profile</span>
+    </div>
+  `;
+
+  partnersDiagramCanvas.innerHTML = `<svg class="partners-diagram-svg" viewBox="0 0 ${width} ${height}">${edgeSvg}${selfNodeSvg}${nodeSvg}</svg>${legendMarkup}`;
 
   partnersDiagramCanvas.querySelectorAll('[data-diagram-partner]').forEach((group) => {
     group.addEventListener('click', () => {
@@ -1958,6 +2466,38 @@ if (linkPartnerAlterBtn) {
   });
 }
 
+if (linkPartnerConnectionBtn) {
+  linkPartnerConnectionBtn.addEventListener('click', () => {
+    if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
+      safeAlert('Select a partner first.');
+      return;
+    }
+    const availablePartners = Object.entries(partnerProfiles)
+      .filter(([key]) => key !== selectedPartnerKey)
+      .map(([, profile]) => profile.name)
+      .filter(Boolean);
+    if (!availablePartners.length) {
+      safeAlert('Add another partner first so there is someone to connect.');
+      return;
+    }
+    const rawName = safePrompt(`Enter the partner to connect with ${partnerProfiles[selectedPartnerKey].name}. Available: ${availablePartners.join(', ')}`, availablePartners[0]);
+    if (!rawName || !rawName.trim()) return;
+    const otherKey = findPartnerKeyByName(rawName);
+    if (!otherKey || otherKey === selectedPartnerKey) {
+      safeAlert('No matching partner was found.');
+      return;
+    }
+    const currentPartner = partnerProfiles[selectedPartnerKey];
+    const otherPartner = partnerProfiles[otherKey];
+    currentPartner.connections = appendCommaLinkValue(currentPartner.connections, otherPartner.name);
+    otherPartner.connections = appendCommaLinkValue(otherPartner.connections, currentPartner.name);
+    currentPartner.linkedProfiles = appendCommaLinkValue(currentPartner.linkedProfiles, `Partner: ${otherPartner.name}`);
+    otherPartner.linkedProfiles = appendCommaLinkValue(otherPartner.linkedProfiles, `Partner: ${currentPartner.name}`);
+    renderPartnersTable();
+    renderPartnerProfile(currentPartner);
+  });
+}
+
 if (linkPartnerProfileBtn) {
   linkPartnerProfileBtn.addEventListener('click', () => {
     if (!selectedPartnerKey || !partnerProfiles[selectedPartnerKey]) {
@@ -2054,6 +2594,7 @@ if (savePartnerBtn) {
   savePartnerBtn.addEventListener('click', () => {
     const base = creatingPartner ? createDefaultPartnerProfile('Partner') : partnerProfiles[selectedPartnerKey];
     if (!base) return;
+    const previousName = String(base.name || '').trim();
     const updated = readPartnerEditorValues(base);
     const name = (updated.name || '').trim();
     if (!name) {
@@ -2074,6 +2615,9 @@ if (savePartnerBtn) {
       creatingPartner = false;
     } else {
       partnerProfiles[selectedPartnerKey] = updated;
+      if (normalizeLookupName(previousName) !== normalizeLookupName(name)) {
+        syncPartnerRelationshipReferences(previousName, name);
+      }
     }
 
     if (partnerEditor) partnerEditor.hidden = true;
@@ -2088,7 +2632,9 @@ if (deletePartnerBtn) {
       safeAlert('Select a partner first.');
       return;
     }
-    if (!safeConfirm(`Delete partner ${partnerProfiles[selectedPartnerKey].name}?`)) return;
+    const partnerName = String(partnerProfiles[selectedPartnerKey].name || '').trim();
+    if (!safeConfirm(`Delete partner ${partnerName}?`)) return;
+    syncPartnerRelationshipReferences(partnerName);
     delete partnerProfiles[selectedPartnerKey];
     selectedPartnerKey = null;
     creatingPartner = false;
@@ -2320,9 +2866,7 @@ const defaultHeadmateProfiles = {
   }
 };
 
-const headmateProfilesByUser = {
-  Alice: JSON.parse(JSON.stringify(defaultHeadmateProfiles))
-};
+const headmateProfilesByUser = {};
 const headmateFoldersByUser = {};
 const headmateProfilePanel = document.getElementById('headmateProfile');
 const headmateProfileGrid = document.getElementById('headmateProfileGrid');
@@ -2427,6 +2971,7 @@ function renderHeadmateEditorFields(profile) {
   }).join('');
 
   bindColorPickers(headmateEditorFields);
+  bindAutoGrowingTextareas(headmateEditorFields);
 }
 
 function readHeadmateEditorValues(baseProfile) {
@@ -2441,8 +2986,8 @@ function readHeadmateEditorValues(baseProfile) {
       return;
     }
 
-    const rawValue = element.value ?? '';
-    updated[field.key] = rawValue.trim() ? rawValue.trim() : (baseProfile[field.key] ?? 'Not set');
+    const rawValue = getEditorInputValue(element);
+    updated[field.key] = rawValue ? rawValue : (baseProfile[field.key] ?? 'Not set');
   });
 
   updated.fieldPrivacy = readFieldPrivacy(headmateFieldSchema, 'headmateEdit', baseProfile);
@@ -2455,7 +3000,7 @@ function ensureHeadmateStoreForUser(userName) {
 }
 
 function getActiveUserName() {
-  return (currentUsername?.textContent || 'Alice').trim();
+  return (currentUsername?.textContent || NO_SYSTEM_USER).trim() || NO_SYSTEM_USER;
 }
 
 function getActiveHeadmateProfiles() {
@@ -2622,8 +3167,17 @@ function canViewField(fieldLevel, viewerLevel) {
 }
 
 function getViewerTrustLevel() {
+  if (loggedInAccountKey && accounts[loggedInAccountKey]) {
+    const activeUser = normalizeLookupName(getActiveUserName());
+    const matchingAccountKey = Object.keys(accounts).find((key) => normalizeLookupName(key) === activeUser);
+    if (matchingAccountKey && matchingAccountKey !== loggedInAccountKey) {
+      return normalizeAccountTrustLevel(accounts[matchingAccountKey]?.friends?.[loggedInAccountKey], 'public');
+    }
+    return 'private';
+  }
+
   const user = getActiveUserName();
-  return systemProfiles[user]?.trustLevel || 'private';
+  return systemProfiles[user]?.trustLevel || 'public';
 }
 
 function renderPrivacySelect(id, current) {
@@ -2651,6 +3205,7 @@ function getModulePrivacyLevel(module) {
   switch (module) {
     case 'parts': return privacySettings?.headmatesVisible ? 'public' : 'private';
     case 'friends': return privacySettings?.partnersVisible ? 'public' : 'private';
+    case 'accountFriends': return 'private';
     case 'journal': return privacySettings?.journalVisible ? 'public' : 'private';
     case 'health': return privacySettings?.healthVisible ? 'public' : 'private';
     case 'calendar': return privacySettings?.historyVisible ? 'public' : 'private';
@@ -2660,7 +3215,8 @@ function getModulePrivacyLevel(module) {
 }
 
 function canAccessModule(module) {
-  if (!USE_BACKEND_AUTH || !isSignedIn()) return true;
+  if (typeof isModuleEnabled === 'function' && !isModuleEnabled(module)) return false;
+  if (!USE_BACKEND_AUTH || typeof isSignedIn !== 'function' || !isSignedIn()) return true;
   return canViewField(getModulePrivacyLevel(module), getViewerTrustLevel());
 }
 
@@ -2708,13 +3264,51 @@ function findSystemUserByName(name) {
   return Object.keys(systemProfiles).find((user) => normalizeLookupName(user) === normalized || normalizeLookupName(systemProfiles[user]?.name) === normalized) || null;
 }
 
+function findAccountByName(name) {
+  const raw = String(name || '').trim();
+  if (!raw) return null;
+  const normalized = normalizeLookupName(raw.replace(/^@+/, ''));
+  if (!normalized) return null;
+
+  const localMatch = Object.values(accounts || {}).find((account) => {
+    return normalizeLookupName(account?.username) === normalized || normalizeLookupName(account?.name) === normalized;
+  });
+  if (localMatch?.username) return localMatch.username;
+
+  const remoteMatch = Array.isArray(remoteAccountDirectory)
+    ? remoteAccountDirectory.find((account) => {
+        return normalizeLookupName(account?.username) === normalized || normalizeLookupName(account?.name) === normalized;
+      })
+    : null;
+  if (remoteMatch?.username) return remoteMatch.username;
+
+  return /^[a-z0-9_-]{2,32}$/i.test(normalized) ? normalized : null;
+}
+
+function parseAccountAlterReference(value) {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^@?([a-z0-9_-]{2,32})\s*(?:\/|->|\||: )\s*(.+)$/i);
+  if (!match) return null;
+  const username = findAccountByName(match[1]) || String(match[1] || '').trim().toLowerCase();
+  const alterName = String(match[2] || '').trim();
+  if (!username || !alterName) return null;
+  return {
+    username,
+    alterName,
+    key: `account-alter::${encodeURIComponent(username)}::${encodeURIComponent(alterName)}`,
+    label: `@${username} / ${alterName}`
+  };
+}
+
 const PROFILE_LINK_TARGETS = [
   { label: 'Headmate', module: 'parts', aliases: ['headmate', 'alter', 'headmates', 'alters'], resolver: findHeadmateKeyByName },
   { label: 'Partner', module: 'friends', aliases: ['partner', 'partners'], resolver: findPartnerKeyByName },
   { label: 'Subsystem', module: 'partners', aliases: ['subsystem', 'subsystems'], resolver: findSubsystemKeyByName },
   { label: 'Location', module: 'notifications', aliases: ['location', 'locations', 'innerworld'], resolver: findLocationKeyByName },
   { label: 'Item', module: 'items', aliases: ['item', 'items'], resolver: findItemKeyByName },
-  { label: 'System', module: 'system', aliases: ['system', 'account', 'user', 'profile'], resolver: findSystemUserByName }
+  { label: 'System', module: 'system', aliases: ['system', 'systems', 'user', 'users', 'system profile'], resolver: findSystemUserByName },
+  { label: 'Account', module: 'accountFriends', aliases: ['account', 'accounts', 'member account', 'login account'], resolver: findAccountByName },
+  { label: 'Account Alter', module: 'accountFriends', aliases: ['account alter', 'account alters', 'friend alter', 'friend alters'], resolver: (label) => parseAccountAlterReference(label)?.key || null }
 ];
 
 function getProfileLinkTarget(typeName) {
@@ -2732,12 +3326,70 @@ function parseLinkedTextList(value) {
     .filter((part) => !['not set', 'none', 'n/a'].includes(part.toLowerCase()));
 }
 
+function setCommaLinkValues(values) {
+  const seen = new Set();
+  const list = Array.isArray(values) ? values : parseLinkedTextList(values);
+  const cleaned = list
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item) => {
+      const normalized = normalizeLookupName(item);
+      if (!normalized || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+  return cleaned.length ? cleaned.join(', ') : 'Not set';
+}
+
 function appendCommaLinkValue(existing, nextValue) {
   const values = parseLinkedTextList(existing);
   if (!values.some((item) => normalizeLookupName(item) === normalizeLookupName(nextValue))) {
     values.push(nextValue);
   }
-  return values.length ? values.join(', ') : 'Not set';
+  return setCommaLinkValues(values);
+}
+
+function replaceCommaLinkValue(existing, previousValue, nextValue) {
+  return setCommaLinkValues(
+    parseLinkedTextList(existing).map((item) => (
+      normalizeLookupName(item) === normalizeLookupName(previousValue) ? nextValue : item
+    ))
+  );
+}
+
+function removeCommaLinkValue(existing, valueToRemove) {
+  return setCommaLinkValues(
+    parseLinkedTextList(existing).filter((item) => normalizeLookupName(item) !== normalizeLookupName(valueToRemove))
+  );
+}
+
+function syncPartnerRelationshipReferences(previousName, nextName = '') {
+  const oldName = String(previousName || '').trim();
+  const newName = String(nextName || '').trim();
+  if (!oldName) return;
+
+  Object.values(partnerProfiles).forEach((profile) => {
+    profile.connections = newName
+      ? replaceCommaLinkValue(profile.connections, oldName, newName)
+      : removeCommaLinkValue(profile.connections, oldName);
+
+    const updatedLinkedProfiles = parseLinkedTextList(profile.linkedProfiles)
+      .map((item) => {
+        const match = item.match(/^Partner:\s*(.+)$/i);
+        if (!match) return item;
+        if (normalizeLookupName(match[1]) !== normalizeLookupName(oldName)) return item;
+        return newName ? `Partner: ${newName}` : '';
+      })
+      .filter(Boolean);
+
+    profile.linkedProfiles = setCommaLinkValues(updatedLinkedProfiles);
+  });
+
+  Object.values(getActiveHeadmateProfiles()).forEach((headmate) => {
+    headmate.partners = newName
+      ? replaceCommaLinkValue(headmate.partners, oldName, newName)
+      : removeCommaLinkValue(headmate.partners, oldName);
+  });
 }
 
 function resolveProfileReference(part) {
@@ -2786,13 +3438,21 @@ function promptForProfileLink(defaultType = 'Headmate') {
       case 'notifications': return Object.values(locationProfiles).map((profile) => profile.name).join(', ');
       case 'items': return Object.values(itemProfiles).map((profile) => profile.name).join(', ');
       case 'system': return Object.keys(systemProfiles).join(', ');
+      case 'accountFriends': {
+        const accountNames = (Array.isArray(remoteAccountDirectory) && remoteAccountDirectory.length ? remoteAccountDirectory : Object.values(accounts))
+          .map((profile) => `@${profile.username || profile.name || 'account'}`);
+        return target.label === 'Account Alter'
+          ? `${accountNames.join(', ')} — format: @username / Alter Name`
+          : accountNames.join(', ');
+      }
       default: return '';
     }
   })();
 
+  const defaultValue = target.label === 'Account Alter' ? '@username / Alter Name' : '';
   const rawName = safePrompt(
     `Enter the ${target.label} name to link${suggestions ? `. Available: ${suggestions}` : ''}`,
-    ''
+    defaultValue
   );
   if (!rawName || !rawName.trim()) return null;
 
@@ -2811,6 +3471,18 @@ function renderRelationLink(module, key, label) {
   return `<button class="relation-link" type="button" data-nav-module="${module}" data-nav-key="${key}">${escapeHtml(label)}</button>`;
 }
 
+function renderStoredMediaValue(value, label = 'Saved image/GIF') {
+  const raw = String(value || '').trim();
+  if (!isMediaUrl(raw)) return '';
+
+  return `
+    <div class="stored-media-preview">
+      <div class="stored-media-preview-thumb" style="background-image:url('${escapeCssUrl(raw)}')"></div>
+      <span>${escapeHtml(label)}</span>
+    </div>
+  `;
+}
+
 function renderProfileFieldValue(context, field, profile) {
   if (field.type === 'boolean') return boolChip(Boolean(profile[field.key]));
 
@@ -2819,6 +3491,13 @@ function renderProfileFieldValue(context, field, profile) {
   const normalized = text.trim().toLowerCase();
   if (!text.trim() || ['not set', 'none', 'n/a'].includes(normalized)) {
     return escapeHtml(text || 'Not set');
+  }
+
+  if (field.key === 'profilePhoto' && isMediaUrl(text)) {
+    return renderStoredMediaValue(text, 'Uploaded photo/GIF');
+  }
+  if (field.key === 'banner' && isMediaUrl(text)) {
+    return renderStoredMediaValue(text, 'Saved banner image/GIF');
   }
 
   const parts = text.split(',').map((part) => part.trim()).filter(Boolean);
@@ -2874,6 +3553,33 @@ function openProfileFromLink(module, key) {
   if (!key) return;
   navigateTo(module);
 
+  if (module === 'profile') {
+    if (loggedInAccountKey && normalizeLookupName(key) !== normalizeLookupName(loggedInAccountKey)) {
+      safeAlert(`Sign into @${key} to open that account profile directly.`);
+    }
+    renderAccountModule();
+    accountProfileView?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  if (module === 'accountFriends') {
+    const rawKey = String(key || '').trim();
+    if (rawKey.startsWith('account-alter::')) {
+      const [, encodedUser = '', encodedAlter = ''] = rawKey.split('::');
+      const username = decodeURIComponent(encodedUser || '').trim();
+      const alterName = decodeURIComponent(encodedAlter || '').trim();
+      if (friendUsernameInput) friendUsernameInput.value = username;
+      if (alterName) {
+        safeAlert(`Linked account alter: @${username} / ${alterName}. Use the Friends tab to connect that account.`);
+      }
+    } else if (friendUsernameInput) {
+      friendUsernameInput.value = decodeURIComponent(rawKey).replace(/^@+/, '').trim();
+    }
+    friendUsernameInput?.focus();
+    accountFriendsList?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
   if (module === 'parts') {
     const profiles = getActiveHeadmateProfiles();
     if (!profiles[key]) return;
@@ -2925,6 +3631,164 @@ function openProfileFromLink(module, key) {
   }
 }
 
+function getTaggableProfileRecords() {
+  const viewerLevel = typeof getViewerTrustLevel === 'function' ? getViewerTrustLevel() : 'public';
+  const records = [];
+  const seen = new Set();
+
+  const pushRecord = (module, key, type, profile = {}, options = {}) => {
+    if (!profile) return;
+    const dedupeKey = `${module}:${String(key || profile.username || profile.name || type).trim().toLowerCase()}`;
+    if (seen.has(dedupeKey)) return;
+
+    const tagVisibility = profile?.fieldPrivacy?.tags || 'public';
+    if (!canViewField(tagVisibility, viewerLevel)) return;
+
+    const tags = [...new Set(parseLinkedTextList(profile?.tags ?? profile?.tag ?? '')
+      .map((tag) => tag.replace(/^#/, '').trim())
+      .filter(Boolean))];
+    if (!tags.length) return;
+
+    const customVisibility = profile?.fieldPrivacy?.customFields || 'public';
+    const name = String(options.name || profile.name || profile.username || key || type).trim() || type;
+    const subtitle = String(options.subtitle || profile.role || profile.type || profile.status || '').trim();
+
+    records.push({
+      module,
+      key: String(key || profile.username || name),
+      type,
+      name,
+      subtitle,
+      tags,
+      customFieldCount: canViewField(customVisibility, viewerLevel) ? parseCustomFieldEntries(profile?.customFields).length : 0,
+      color: normalizeHexColor(profile?.color || options.color || '#6c63ff', '#6c63ff'),
+      photo: profile?.profilePhoto || options.photo || name[0]?.toUpperCase() || '?',
+      openable: options.openable !== false
+    });
+    seen.add(dedupeKey);
+  };
+
+  Object.entries(systemProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('system', key, 'System', profile, { subtitle: profile?.nickname || 'System profile' });
+  });
+
+  const currentAccount = typeof getCurrentAccountRecord === 'function' ? getCurrentAccountRecord() : null;
+  if (currentAccount) {
+    pushRecord('profile', currentAccount.username || loggedInAccountKey, 'Account', currentAccount, {
+      subtitle: `@${currentAccount.username || loggedInAccountKey}`,
+      openable: true
+    });
+  }
+
+  Object.entries(getActiveHeadmateProfiles()).forEach(([key, profile]) => {
+    pushRecord('parts', key, getSingularTerm('headmates'), profile, {
+      subtitle: profile?.role || profile?.region || profile?.status || `${getSingularTerm('headmates')} profile`
+    });
+  });
+
+  Object.entries(partnerProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('friends', key, getSingularTerm('partners'), profile, {
+      subtitle: profile?.type || profile?.status || 'Partner profile'
+    });
+  });
+
+  Object.entries(getActiveSubsystems()).forEach(([key, profile]) => {
+    pushRecord('partners', key, getSingularTerm('subsystem'), profile, {
+      subtitle: profile?.description || 'Subsystem profile'
+    });
+  });
+
+  Object.entries(itemProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('items', key, 'Item', profile, {
+      subtitle: profile?.tag || 'Item profile',
+      photo: profile?.name?.[0]?.toUpperCase() || 'I'
+    });
+  });
+
+  Object.entries(locationProfiles || {}).forEach(([key, profile]) => {
+    pushRecord('notifications', key, getTermLabel('innerworld'), profile, {
+      subtitle: profile?.type || 'Location profile',
+      photo: profile?.name?.[0]?.toUpperCase() || 'L'
+    });
+  });
+
+  return records.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderTagsModule() {
+  if (!tagCloud || !tagResultsGrid || !tagSummary) return;
+
+  const records = getTaggableProfileRecords();
+  const moduleFilter = tagTypeFilter?.value || 'all';
+  const filteredRecords = moduleFilter === 'all'
+    ? records
+    : records.filter((record) => record.module === moduleFilter);
+
+  const tagMap = new Map();
+  filteredRecords.forEach((record) => {
+    record.tags.forEach((tag) => {
+      const key = normalizeLookupName(tag);
+      if (!key) return;
+      if (!tagMap.has(key)) {
+        tagMap.set(key, { label: tag, count: 0, records: [] });
+      }
+      const entry = tagMap.get(key);
+      entry.count += 1;
+      entry.records.push(record);
+    });
+  });
+
+  const tagEntries = Array.from(tagMap.entries())
+    .map(([key, entry]) => ({ key, ...entry }))
+    .sort((a, b) => (b.count - a.count) || a.label.localeCompare(b.label));
+
+  if (activeTagFilter !== 'all' && !tagEntries.some((entry) => entry.key === activeTagFilter)) {
+    activeTagFilter = 'all';
+  }
+
+  tagSummary.textContent = filteredRecords.length
+    ? `${filteredRecords.length} tagged profiles in this account across ${tagEntries.length} tag${tagEntries.length === 1 ? '' : 's'}. Tags stay separate from folders and stay scoped to this account.`
+    : 'No tagged profiles in this account yet. Add comma-separated tags to any profile here and it will show up.';
+
+  tagCloud.innerHTML = [
+    `<button class="tag-pill tag-pill-btn ${activeTagFilter === 'all' ? 'active' : ''}" type="button" data-open-tag="all">All tags</button>`,
+    ...tagEntries.map((entry) => `<button class="tag-pill tag-pill-btn ${activeTagFilter === entry.key ? 'active' : ''}" type="button" data-open-tag="${escapeHtml(entry.label)}">#${escapeHtml(entry.label)} <span class="badge">${entry.count}</span></button>`)
+  ].join('');
+
+  const visibleRecords = activeTagFilter === 'all'
+    ? filteredRecords
+    : filteredRecords.filter((record) => record.tags.some((tag) => normalizeLookupName(tag) === activeTagFilter));
+
+  if (!visibleRecords.length) {
+    tagResultsGrid.innerHTML = '<p class="headmate-hint" style="margin:0">No profiles match that tag yet.</p>';
+    return;
+  }
+
+  tagResultsGrid.innerHTML = visibleRecords.map((record) => {
+    const subtitle = record.subtitle || `${record.tags.length} tag${record.tags.length === 1 ? '' : 's'} linked`;
+    const fieldText = `${record.customFieldCount} custom field${record.customFieldCount === 1 ? '' : 's'}`;
+    const disabledAttr = record.openable ? '' : ' disabled title="Sign into that account to open it directly."';
+    return `
+      <article class="tag-browser-card">
+        <div class="tag-browser-card-head">
+          <div class="tag-browser-main">
+            ${renderAvatarMarkup(record.photo, record.name[0]?.toUpperCase() || '?', record.color || '#6c63ff', 'sm')}
+            <div class="tag-browser-meta">
+              <strong>${escapeHtml(record.name)}</strong>
+              <span>${escapeHtml(record.type)} • ${escapeHtml(subtitle)}</span>
+            </div>
+          </div>
+          <span class="badge">${escapeHtml(fieldText)}</span>
+        </div>
+        ${renderTagPills(record.tags.join(', '))}
+        <div class="tag-browser-card-actions">
+          <button class="btn-sm" type="button" data-tag-profile-module="${escapeHtml(record.module)}" data-tag-profile-key="${escapeHtml(record.key)}"${disabledAttr}>Open profile</button>
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
 document.addEventListener('click', (event) => {
   const link = event.target.closest('.relation-link[data-nav-module][data-nav-key]');
   if (!link) return;
@@ -2932,6 +3796,37 @@ document.addEventListener('click', (event) => {
   event.stopPropagation();
   openProfileFromLink(link.dataset.navModule, link.dataset.navKey);
 });
+
+document.addEventListener('click', (event) => {
+  const tagButton = event.target.closest('[data-open-tag]');
+  if (!tagButton) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const rawTag = String(tagButton.dataset.openTag || 'all').trim();
+  activeTagFilter = rawTag.toLowerCase() === 'all' ? 'all' : normalizeLookupName(rawTag);
+  navigateTo('tags');
+  renderTagsModule();
+});
+
+if (clearTagFilterBtn) {
+  clearTagFilterBtn.addEventListener('click', () => {
+    activeTagFilter = 'all';
+    if (tagTypeFilter) tagTypeFilter.value = 'all';
+    renderTagsModule();
+  });
+}
+
+if (tagTypeFilter) {
+  tagTypeFilter.addEventListener('change', () => renderTagsModule());
+}
+
+if (tagResultsGrid) {
+  tagResultsGrid.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-tag-profile-module][data-tag-profile-key]');
+    if (!button || button.hasAttribute('disabled')) return;
+    openProfileFromLink(button.dataset.tagProfileModule || '', button.dataset.tagProfileKey || '');
+  });
+}
 
 function normalizeHexColor(value, fallback = '#6c63ff') {
   const raw = String(value || '').trim();
@@ -2989,26 +3884,30 @@ function renderAvatarMarkup(value, fallbackText = '?', colorValue = '#6c63ff', s
   return `<div class="${className}" style="${styleParts.join(';')}">${hasMedia ? '' : escapeHtml(raw || fallback)}</div>`;
 }
 
-function renderTagPills(text) {
-  const tags = parseLinkedTextList(text).map((tag) => tag.replace(/^#/, '').trim()).filter(Boolean);
+function renderTagPills(text, options = {}) {
+  const tags = [...new Set(parseLinkedTextList(text).map((tag) => tag.replace(/^#/, '').trim()).filter(Boolean))];
   if (!tags.length) return escapeHtml(String(text || 'Not set'));
-  return `<div class="tag-pill-row">${tags.map((tag) => `<span class="tag-pill">#${escapeHtml(tag)}</span>`).join('')}</div>`;
+  const clickable = options.clickable !== false;
+  return `<div class="tag-pill-row">${tags.map((tag) => clickable
+    ? `<button class="tag-pill tag-pill-btn" type="button" data-open-tag="${escapeHtml(tag)}">#${escapeHtml(tag)}</button>`
+    : `<span class="tag-pill">#${escapeHtml(tag)}</span>`).join('')}</div>`;
 }
 
 function parseCustomFieldEntries(value) {
   return String(value || '')
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
     .filter(Boolean)
     .filter((line) => !['not set', 'none', 'n/a'].includes(line.toLowerCase()))
     .map((line, index) => {
-      const [label, ...rest] = line.split(':');
-      if (!rest.length) {
-        return { label: `Custom ${index + 1}`, value: label.trim() };
+      const dividerIndex = line.search(/[:=]/);
+      if (dividerIndex === -1) {
+        return { label: `Custom ${index + 1}`, value: line.trim() };
       }
+
       return {
-        label: label.trim() || `Custom ${index + 1}`,
-        value: rest.join(':').trim() || 'Not set'
+        label: line.slice(0, dividerIndex).trim() || `Custom ${index + 1}`,
+        value: line.slice(dividerIndex + 1).trim() || 'Not set'
       };
     })
     .filter((entry) => entry.value && !['not set', 'none', 'n/a'].includes(entry.value.toLowerCase()));
@@ -3017,7 +3916,7 @@ function parseCustomFieldEntries(value) {
 function renderCustomFieldSummary(value) {
   const entries = parseCustomFieldEntries(value);
   if (!entries.length) return escapeHtml(String(value || 'Not set'));
-  return `<span class="setting-value">${entries.length} custom field${entries.length === 1 ? '' : 's'} saved</span>`;
+  return `<span class="setting-value">${entries.length} custom profile field${entries.length === 1 ? '' : 's'} saved</span>`;
 }
 
 function renderInlineMarkdown(text) {
@@ -3100,29 +3999,200 @@ function renderCustomFieldArticles(profile, privacyValue = 'public') {
   });
 }
 
+const MEDIA_FILE_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,image/svg+xml';
+const MAX_MEDIA_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_EMBEDDED_IMAGE_BYTES = 350 * 1024;
+const MAX_EMBEDDED_GIF_BYTES = 900 * 1024;
+const MAX_SAFE_LOCAL_STATE_BYTES = 4 * 1024 * 1024;
+const MAX_SAFE_REMOTE_STATE_BYTES = 12 * 1024 * 1024;
+const ACCOUNT_STORAGE_BACKUP_KEY = 'ispd7.accounts.backup.v1';
+const HUB_STATE_BACKUP_KEY = 'ispd7.hub.state.backup.v1';
+let lastStorageWarningText = '';
+
+function estimateStringBytes(value) {
+  try {
+    return new Blob([String(value || '')]).size;
+  } catch (_err) {
+    return String(value || '').length;
+  }
+}
+
+function isEmbeddedMediaValue(value) {
+  return /^data:image\//i.test(String(value || '').trim());
+}
+
+function getEmbeddedMediaByteLimit(value = '') {
+  return /^data:image\/gif/i.test(String(value || '').trim()) ? MAX_EMBEDDED_GIF_BYTES : MAX_EMBEDDED_IMAGE_BYTES;
+}
+
+function createStorageMediaPlaceholder(keyHint = '') {
+  return keyHint === 'profilePhoto' ? '' : 'Uploaded media omitted from compact backup';
+}
+
+function sanitizeEmbeddedMediaValue(value, fallback = '', options = {}) {
+  const raw = String(value || '').trim();
+  if (!isEmbeddedMediaValue(raw)) return raw || fallback;
+  if (options.stripAllEmbeddedMedia) return fallback;
+  return estimateStringBytes(raw) <= getEmbeddedMediaByteLimit(raw) ? raw : fallback;
+}
+
+function cloneForStorage(value, keyHint = '', options = {}) {
+  if (typeof value === 'string') {
+    if (!isEmbeddedMediaValue(value)) return value;
+    return sanitizeEmbeddedMediaValue(value, createStorageMediaPlaceholder(keyHint), options);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => cloneForStorage(entry, keyHint, options));
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const output = {};
+  Object.entries(value).forEach(([key, entry]) => {
+    output[key] = cloneForStorage(entry, key, options);
+  });
+  return output;
+}
+
+function buildStorageSafeClone(value, maxBytes = MAX_SAFE_LOCAL_STATE_BYTES, options = {}) {
+  const fullValue = cloneForStorage(value, '', options);
+  const fullSerialized = JSON.stringify(fullValue);
+  if (estimateStringBytes(fullSerialized) <= maxBytes) {
+    return { value: fullValue, serialized: fullSerialized, compacted: false };
+  }
+
+  const compactValue = cloneForStorage(value, '', { ...options, stripAllEmbeddedMedia: true });
+  return {
+    value: compactValue,
+    serialized: JSON.stringify(compactValue),
+    compacted: true
+  };
+}
+
+function readStoredJsonWithBackup(primaryKey, backupKey = '', fallback = null) {
+  const tryRead = (key) => {
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  };
+
+  try {
+    const primaryValue = tryRead(primaryKey);
+    if (primaryValue !== null) return primaryValue;
+  } catch (_err) {
+    // Fall through to backup.
+  }
+
+  try {
+    const backupValue = tryRead(backupKey);
+    if (backupValue !== null) return backupValue;
+  } catch (_err) {
+    // Ignore malformed backup data too.
+  }
+
+  return fallback;
+}
+
+function writeStoredJsonWithBackup(primaryKey, backupKey, value, options = {}) {
+  const maxBytes = Number(options.maxBytes || MAX_SAFE_LOCAL_STATE_BYTES) || MAX_SAFE_LOCAL_STATE_BYTES;
+  const warningMessage = String(options.warningMessage || '').trim();
+  const persistSerialized = (serializedText) => {
+    localStorage.setItem(primaryKey, serializedText);
+    if (backupKey) localStorage.setItem(backupKey, serializedText);
+  };
+
+  const attempt = buildStorageSafeClone(value, maxBytes);
+  try {
+    persistSerialized(attempt.serialized);
+    if (attempt.compacted && warningMessage) showStorageWarning(warningMessage);
+    return attempt;
+  } catch (_err) {
+    const fallbackAttempt = buildStorageSafeClone(value, Math.max(256 * 1024, Math.floor(maxBytes * 0.85)), { stripAllEmbeddedMedia: true });
+    try {
+      persistSerialized(fallbackAttempt.serialized);
+    } catch (_secondaryErr) {
+      if (warningMessage) showStorageWarning(warningMessage);
+      return fallbackAttempt;
+    }
+    if (warningMessage) showStorageWarning(warningMessage);
+    return fallbackAttempt;
+  }
+}
+
+function showStorageWarning(message) {
+  const text = String(message || '').trim();
+  if (!text || lastStorageWarningText === text) return;
+  lastStorageWarningText = text;
+  window.setTimeout(() => {
+    if (lastStorageWarningText === text) lastStorageWarningText = '';
+  }, 2500);
+  safeAlert(text);
+}
+
+function renderMediaInputControl({ label, id, value, placeholder = '', helperText = '' }) {
+  const rawValue = String(value || '').trim();
+  const hasEmbeddedImage = /^data:image\//i.test(rawValue);
+  const displayValue = hasEmbeddedImage ? '[Uploaded image/GIF saved]' : rawValue;
+  const mediaAttrs = hasEmbeddedImage
+    ? ` data-media-value="${escapeHtml(rawValue)}" data-media-label="${escapeHtml(displayValue)}"`
+    : '';
+
+  return `
+    <div class="media-input-field">
+      <span class="media-input-label">${label}</span>
+      <div class="media-input-row">
+        <input class="setting-input" id="${id}" type="text" value="${escapeHtml(displayValue)}"${mediaAttrs}${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''} />
+        <label class="btn-sm media-upload-btn" title="Choose an image or GIF file">
+          Upload File/GIF
+          <input type="file" accept="${MEDIA_FILE_ACCEPT}" data-media-target="${id}" hidden />
+        </label>
+        <button class="btn-sm" type="button" data-clear-media-target="${id}">Clear</button>
+      </div>
+      ${helperText ? `<p class="field-helper">${helperText}</p>` : ''}
+    </div>
+  `;
+}
+
 function renderFieldInput(field, id, safeValue) {
   const placeholder = field.key === 'profilePhoto'
-    ? 'Letter, GIF URL, or image URL'
+    ? 'Letter, uploaded file/GIF, or image URL'
     : field.key === 'banner'
-      ? 'Banner text or image/GIF URL'
+      ? 'Banner text, uploaded file/GIF, or image URL'
       : field.key === 'linkedProfiles'
-        ? 'Example: Headmate: Alex, Location: Front Room'
+        ? 'Example: Headmate: Alex, Account: @friend, Account Alter: @friend / Nova'
         : field.key === 'linkedAlters'
           ? 'Comma-separated alter names'
           : field.key === 'partnerHeadmates'
             ? 'Example: Jun (Host), Mira (Protector)'
             : field.key === 'tags' || field.key === 'tag'
-              ? 'Comma-separated tags'
+              ? 'Comma-separated tags like admin, comfort, fronting'
               : field.key === 'customFields'
-                ? 'Example: Favorite drink: Tea\nSafe show: Bee and PuppyCat'
+                ? 'One field per line, like:\nPronouns: they/them\nComfort item: Lavender tea'
                 : '';
 
   if (field.key === 'color') {
     const color = normalizeHexColor(safeValue, '#6c63ff');
-    return `<label>${field.label}<div class="color-input-row"><input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || color))}" placeholder="#6c63ff" /><input type="color" id="${id}Picker" data-color-target="${id}" value="${color}" /></div></label>`;
+    return `<label>${field.label}<div class="color-input-row"><input class="setting-input setting-input-color" id="${id}" type="color" value="${color}" /><span class="color-value-pill" data-color-value-for="${id}">${escapeHtml(color.toUpperCase())}</span></div></label>`;
+  }
+  if (field.key === 'profilePhoto' || field.key === 'banner') {
+    const helperText = field.key === 'profilePhoto'
+      ? 'Choose a local photo or GIF from your device, or paste an image URL. You can still type a letter if you prefer.'
+      : 'Choose a local image or GIF from your device, or paste an image URL. You can also keep using banner text.';
+    return renderMediaInputControl({
+      label: field.label,
+      id,
+      value: safeValue,
+      placeholder,
+      helperText
+    });
   }
   if (field.type === 'textarea') {
-    return `<label>${field.label}<textarea class="setting-input" id="${id}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''}>${escapeHtml(String(safeValue || ''))}</textarea></label>`;
+    const helper = field.key === 'customFields'
+      ? `<p class="field-helper">Create actual profile fields here with one line per field in <code>Label: Value</code> format.</p><button class="btn-sm" type="button" data-add-custom-field="${id}">+ Add Field Row</button>`
+      : '';
+    return `<label>${field.label}<textarea class="setting-input" id="${id}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''}>${escapeHtml(String(safeValue || ''))}</textarea>${helper}</label>`;
   }
   if (field.key === 'folder') {
     return `<label>${field.label}<input class="setting-input" id="${id}" list="headmateFolderOptions" type="text" value="${escapeHtml(String(safeValue || ''))}" placeholder="e.g. Front Crew" /></label>`;
@@ -3133,23 +4203,248 @@ function renderFieldInput(field, id, safeValue) {
   return `<label>${field.label}<input class="setting-input" id="${id}" type="text" value="${escapeHtml(String(safeValue || ''))}"${placeholder ? ` placeholder="${escapeHtml(placeholder)}"` : ''} /></label>`;
 }
 
-function bindColorPickers(container) {
-  if (!container) return;
-  container.querySelectorAll('input[type="color"][data-color-target]').forEach((picker) => {
-    const targetId = picker.getAttribute('data-color-target');
-    const textInput = targetId ? document.getElementById(targetId) : null;
-    if (!textInput) return;
+function syncColorValuePill(input, fallback = '#6c63ff') {
+  if (!input) return;
+  const color = normalizeHexColor(input.value, fallback);
+  if (input.value !== color) input.value = color;
 
-    picker.addEventListener('input', () => {
-      textInput.value = picker.value;
-    });
+  const row = input.closest('.color-input-row');
+  const pill = (row && input.id ? row.querySelector(`[data-color-value-for="${input.id}"]`) : null)
+    || (input.id ? document.getElementById(`${input.id}Value`) : null);
 
-    textInput.addEventListener('input', () => {
-      const value = textInput.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(value)) picker.value = value;
-    });
+  if (pill) pill.textContent = color.toUpperCase();
+}
+
+function getEditorInputValue(input) {
+  return String(input?.dataset?.mediaValue ?? input?.value ?? '').trim();
+}
+
+function storeMediaInputValue(input, rawValue, labelText = '[Uploaded image/GIF saved]') {
+  if (!input) return;
+  const cleanValue = String(rawValue || '').trim();
+  if (!cleanValue) {
+    delete input.dataset.mediaValue;
+    delete input.dataset.mediaLabel;
+    input.value = '';
+    return;
+  }
+
+  input.dataset.mediaValue = cleanValue;
+  input.dataset.mediaLabel = labelText;
+  input.dataset.settingMediaSyncing = 'true';
+  input.value = labelText;
+  delete input.dataset.settingMediaSyncing;
+}
+
+function primeStoredMediaInput(input, labelText = '[Uploaded image/GIF saved]') {
+  if (!input) return;
+  const raw = String(input.dataset.mediaValue || input.value || '').trim();
+  delete input.dataset.mediaValue;
+  delete input.dataset.mediaLabel;
+
+  if (/^data:image\//i.test(raw)) {
+    storeMediaInputValue(input, raw, labelText);
+  }
+}
+
+function loadImageElement(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not process that image.'));
+    img.src = src;
   });
 }
+
+async function optimizeStaticImageDataUrl(dataUrl) {
+  const img = await loadImageElement(dataUrl);
+  const naturalWidth = img.naturalWidth || img.width || 1;
+  const naturalHeight = img.naturalHeight || img.height || 1;
+  const maxDimension = 900;
+  const scale = Math.min(1, maxDimension / Math.max(naturalWidth, naturalHeight));
+
+  if (scale >= 0.999 && estimateStringBytes(dataUrl) <= MAX_EMBEDDED_IMAGE_BYTES) {
+    return dataUrl;
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(naturalHeight * scale));
+
+  const context = canvas.getContext('2d');
+  if (!context) return dataUrl;
+
+  context.drawImage(img, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/webp', 0.82);
+}
+
+async function readFileAsDataUrl(file) {
+  const rawDataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read that file.'));
+    reader.readAsDataURL(file);
+  });
+
+  if (/^image\/(png|jpe?g|webp)$/i.test(String(file?.type || ''))) {
+    try {
+      return await optimizeStaticImageDataUrl(rawDataUrl);
+    } catch (_err) {
+      return rawDataUrl;
+    }
+  }
+
+  return rawDataUrl;
+}
+
+function enhanceMediaPickerInput(input, options = {}) {
+  if (!input || input.dataset.mediaEnhanced === 'true' || !input.id || !input.parentNode) return;
+
+  const kind = options.kind || 'photo';
+  const helperText = options.helperText
+    || (kind === 'banner'
+      ? 'Choose a local image or GIF file or paste an image URL. You can also keep using banner text.'
+      : 'Choose a local photo or GIF file or paste an image URL. You can still type a letter if you prefer.');
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'media-input-row';
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(input);
+
+  const uploadLabel = document.createElement('label');
+  uploadLabel.className = 'btn-sm media-upload-btn';
+  uploadLabel.title = 'Choose an image or GIF file';
+  uploadLabel.innerHTML = `Upload File/GIF<input type="file" accept="${MEDIA_FILE_ACCEPT}" data-media-target="${input.id}" hidden />`;
+
+  const clearButton = document.createElement('button');
+  clearButton.type = 'button';
+  clearButton.className = 'btn-sm';
+  clearButton.dataset.clearMediaTarget = input.id;
+  clearButton.textContent = 'Clear';
+
+  wrapper.appendChild(uploadLabel);
+  wrapper.appendChild(clearButton);
+
+  const helper = document.createElement('p');
+  helper.className = 'field-helper';
+  helper.textContent = helperText;
+  wrapper.insertAdjacentElement('afterend', helper);
+
+  input.dataset.mediaEnhanced = 'true';
+  primeStoredMediaInput(input);
+}
+
+function bindColorPickers(container) {
+  if (!container) return;
+  container.querySelectorAll('input[type="color"]').forEach((picker) => {
+    syncColorValuePill(picker);
+    if (picker.dataset.colorBound === 'true') return;
+
+    picker.addEventListener('input', () => {
+      syncColorValuePill(picker);
+    });
+    picker.addEventListener('change', () => {
+      syncColorValuePill(picker);
+    });
+    picker.dataset.colorBound = 'true';
+  });
+}
+
+document.addEventListener('click', (event) => {
+  const clearMediaBtn = event.target.closest('[data-clear-media-target]');
+  if (clearMediaBtn) {
+    event.preventDefault();
+    const target = document.getElementById(clearMediaBtn.dataset.clearMediaTarget || '');
+    if (!target) return;
+    delete target.dataset.mediaValue;
+    delete target.dataset.mediaLabel;
+    target.value = '';
+    target.focus();
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  }
+
+  const addFieldBtn = event.target.closest('[data-add-custom-field]');
+  if (!addFieldBtn) return;
+  event.preventDefault();
+
+  const target = document.getElementById(addFieldBtn.dataset.addCustomField || '');
+  if (!target) return;
+
+  const prefix = target.value.trim() ? `${target.value.trim()}\n` : '';
+  target.value = `${prefix}New Field: `;
+  target.focus();
+  target.setSelectionRange(target.value.length, target.value.length);
+});
+
+document.addEventListener('change', async (event) => {
+  const picker = event.target.closest('input[type="file"][data-media-target]');
+  if (!picker) return;
+
+  const [file] = Array.from(picker.files || []);
+  if (!file) return;
+
+  const target = document.getElementById(picker.dataset.mediaTarget || '');
+  if (!target) return;
+
+  if (!String(file.type || '').startsWith('image/')) {
+    safeAlert('Please choose an image or GIF file.');
+    picker.value = '';
+    return;
+  }
+
+  if (file.size > MAX_MEDIA_UPLOAD_BYTES) {
+    safeAlert('Please choose an image or GIF under 2 MB.');
+    picker.value = '';
+    return;
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const maxEmbeddedBytes = /^image\/gif$/i.test(String(file.type || '')) ? MAX_EMBEDDED_GIF_BYTES : MAX_EMBEDDED_IMAGE_BYTES;
+    if (estimateStringBytes(dataUrl) > maxEmbeddedBytes) {
+      throw new Error('That file is too large to save safely. Please use a smaller image/GIF or paste an image URL instead.');
+    }
+    storeMediaInputValue(target, dataUrl, `[Uploaded] ${file.name}`);
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    target.dispatchEvent(new Event('change', { bubbles: true }));
+  } catch (error) {
+    safeAlert(error?.message || 'Could not read that file.');
+  } finally {
+    picker.value = '';
+  }
+});
+
+function autoSizeTextarea(textarea) {
+  if (!textarea) return;
+  textarea.style.height = 'auto';
+  textarea.style.height = `${Math.max(textarea.scrollHeight, 78)}px`;
+}
+
+function bindAutoGrowingTextareas(container = document) {
+  if (!container) return;
+  container.querySelectorAll('textarea.setting-input').forEach((textarea) => {
+    autoSizeTextarea(textarea);
+    if (textarea.dataset.autoGrowBound === 'true') return;
+
+    textarea.addEventListener('input', () => autoSizeTextarea(textarea));
+    textarea.dataset.autoGrowBound = 'true';
+  });
+}
+
+document.addEventListener('input', (event) => {
+  const input = event.target.closest('.setting-input[id]');
+  if (!input || input.dataset.settingMediaSyncing === 'true') return;
+  if (input.dataset.mediaValue && input.value !== input.dataset.mediaLabel) {
+    delete input.dataset.mediaValue;
+    delete input.dataset.mediaLabel;
+  }
+
+  if (input.matches('textarea.setting-input')) {
+    autoSizeTextarea(input);
+  }
+});
 
 function applyBannerStyle(el, bannerValue, colorValue, colorVarName = '--headmate-color') {
   if (!el) return;
@@ -3479,6 +4774,7 @@ function createDefaultHeadmateProfile(name, region, status) {
 
 if (addHeadmateBtn && headmatesTableBody) {
   addHeadmateBtn.addEventListener('click', () => {
+    if (!canCreateHeadmates(1)) return;
     creatingHeadmate = true;
     selectedHeadmateKey = null;
     pendingHeadmateDraft = null;
@@ -3501,6 +4797,7 @@ if (addHeadmateBtn && headmatesTableBody) {
 
 if (addHeadmateFromTemplateBtn && headmatesTableBody) {
   addHeadmateFromTemplateBtn.addEventListener('click', () => {
+    if (!canCreateHeadmates(1)) return;
     const template = pickTemplateForTarget('headmate');
     if (!template) return;
     creatingHeadmate = true;
@@ -3573,6 +4870,7 @@ if (saveHeadmateBtn) {
     let profile;
 
     if (creatingHeadmate) {
+      if (!canCreateHeadmates(1)) return;
       const role = (updatedDraft.mainRole || '').trim() || 'Support';
       const baseKey = slugifyHeadmateName(nameFromForm);
       let key = baseKey;
@@ -3636,9 +4934,21 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
     const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (!lines.length) return;
 
+    const remainingCapacity = Math.max(0, MAX_HEADMATES_PER_ACCOUNT - getTotalHeadmateCountForAccount());
+    if (!remainingCapacity) {
+      canCreateHeadmates(1);
+      return;
+    }
+
     let addedCount = 0;
+    let skippedCount = 0;
 
     lines.forEach((line) => {
+      if (addedCount >= remainingCapacity) {
+        skippedCount += 1;
+        return;
+      }
+
       const [rawName, rawRegion, rawStatus] = line.split('|').map((part) => (part || '').trim());
       if (!rawName) return;
 
@@ -3661,7 +4971,7 @@ if (bulkAddHeadmatesBtn && headmatesTableBody) {
 
     if (addedCount > 0) {
       renderHeadmatesTable();
-      safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}.`);
+      safeAlert(`Added ${addedCount} headmate${addedCount === 1 ? '' : 's'}${skippedCount ? `, skipped ${skippedCount} because this account can only hold ${MAX_HEADMATES_PER_ACCOUNT} total.` : '.'}`);
     }
   });
 }
@@ -3720,34 +5030,7 @@ const locationFieldSchema = [
   { key: 'color', label: 'Color' }
 ];
 
-const locationProfiles = {
-  'front-room': {
-    name: 'Front Room',
-    type: 'Common area',
-    description: 'Primary shared fronting space used for coordination and quick check-ins.',
-    tags: 'front, coordination',
-    customFields: 'Weather: Calm\nLighting: Soft purple glow',
-    associatedAlters: 'Alex, Rowan, Sky',
-    connectedLocations: 'Archive Hall, Garden Path',
-    sublocations: ['archive-hall'],
-    profilePhoto: 'F',
-    banner: 'Central Hub',
-    color: '#6c63ff'
-  },
-  'archive-hall': {
-    name: 'Archive Hall',
-    type: 'Memory archive',
-    description: 'A structured corridor with stored records, timelines, and internal references.',
-    tags: 'archive, memory',
-    customFields: 'Access level: Guided only',
-    associatedAlters: 'Alex',
-    connectedLocations: 'Front Room',
-    sublocations: [],
-    profilePhoto: 'A',
-    banner: 'Records Wing',
-    color: '#43d9ad'
-  }
-};
+const locationProfiles = {};
 
 let selectedLocationKey = null;
 let creatingLocation = false;
@@ -3807,6 +5090,7 @@ function renderLocationEditorFields(profile) {
   }).join('');
 
   bindColorPickers(locationEditorFields);
+  bindAutoGrowingTextareas(locationEditorFields);
 }
 
 function readLocationEditorValues(base) {
@@ -3814,7 +5098,7 @@ function readLocationEditorValues(base) {
   locationFieldSchema.forEach((field) => {
     const el = document.getElementById(`locationEdit_${field.key}`);
     if (!el) return;
-    const value = (el.value || '').trim();
+    const value = getEditorInputValue(el);
     updated[field.key] = value || (base[field.key] ?? 'Not set');
   });
   updated.fieldPrivacy = readFieldPrivacy(locationFieldSchema, 'locationEdit', base);
@@ -4284,6 +5568,7 @@ function renderSubsystemEditorFields(subsystem) {
   }).join('');
 
   bindColorPickers(subsystemEditorFields);
+  bindAutoGrowingTextareas(subsystemEditorFields);
 }
 
 function readSubsystemEditorValues(base) {
@@ -4291,7 +5576,7 @@ function readSubsystemEditorValues(base) {
   subsystemFieldSchema.forEach((field) => {
     const el = document.getElementById(`subsystemEdit_${field.key}`);
     if (!el) return;
-    updated[field.key] = el.value.trim() || (base[field.key] ?? '');
+    updated[field.key] = getEditorInputValue(el) || (base[field.key] ?? '');
   });
   updated.fieldPrivacy = readFieldPrivacy(subsystemFieldSchema, 'subsystemEdit', base);
   return updated;
@@ -4675,6 +5960,7 @@ function renderItemEditorFields(profile) {
   }).join('');
 
   bindColorPickers(itemEditorFields);
+  bindAutoGrowingTextareas(itemEditorFields);
 }
 
 function readItemEditorValues(base) {
@@ -4682,7 +5968,7 @@ function readItemEditorValues(base) {
   itemFieldSchema.forEach((field) => {
     const el = document.getElementById(`itemEdit_${field.key}`);
     if (!el) return;
-    updated[field.key] = el.value.trim() || (base[field.key] ?? 'Not set');
+    updated[field.key] = getEditorInputValue(el) || (base[field.key] ?? 'Not set');
   });
   updated.fieldPrivacy = readFieldPrivacy(itemFieldSchema, 'itemEdit', base);
   return updated;
@@ -5045,10 +6331,21 @@ const saveTemplateBtn = document.getElementById('saveTemplateBtn');
 const deleteTemplateBtn = document.getElementById('deleteTemplateBtn');
 const templateEditor = document.getElementById('templateEditor');
 const templateEditorFields = document.getElementById('templateEditorFields');
+const templateTargetButtons = document.querySelectorAll('[data-template-target-button]');
+
+const TEMPLATE_TARGET_OPTIONS = [
+  { value: 'all', label: 'All Profiles' },
+  { value: 'headmate', label: 'Headmate' },
+  { value: 'system', label: 'System' },
+  { value: 'partner', label: 'Partner' },
+  { value: 'subsystem', label: 'Subsystem' },
+  { value: 'item', label: 'Item' },
+  { value: 'location', label: 'Location' }
+];
 
 const templateFieldSchema = [
   { key: 'name', label: 'Name' },
-  { key: 'target', label: 'Target module (headmate/system/item/partner/subsystem/all)' },
+  { key: 'target', label: 'Target type' },
   { key: 'category', label: 'Category' },
   { key: 'description', label: 'Description', type: 'textarea' },
   { key: 'defaultContent', label: 'Default content', type: 'textarea' },
@@ -5056,36 +6353,17 @@ const templateFieldSchema = [
   { key: 'color', label: 'Color' }
 ];
 
-const customTemplates = {
-  report: {
-    name: 'Report Template',
-    target: 'all',
-    category: 'Reports',
-    description: 'Standard report layout with summary and action items.',
-    defaultContent: 'Summary:\nFindings:\nAction items:\nOwner:\nDue date:',
-    banner: 'Structured Report',
-    color: '#6c63ff'
-  },
-  journal: {
-    name: 'Journal Entry',
-    target: 'all',
-    category: 'Logging',
-    description: 'Daily journal entry with date, mood, and notes.',
-    defaultContent: 'Date:\nMood:\nContext:\nEntry:\nFollow-up:',
-    banner: 'Daily Reflection',
-    color: '#43d9ad'
-  }
-};
+const customTemplates = {};
 
 let selectedTemplateKey = null;
 let creatingTemplate = false;
 
-function createDefaultTemplate(name) {
+function createDefaultTemplate(name, target = 'all') {
   const colors = ['#6c63ff', '#ff6584', '#43d9ad', '#f5a623', '#a29bfe', '#fd79a8', '#0984e3', '#e17055'];
   const color = colors[Math.floor(Math.random() * colors.length)];
   return {
     name,
-    target: 'all',
+    target: normalizeTemplateTarget(target),
     category: 'Custom',
     description: 'Not set',
     defaultContent: 'Not set',
@@ -5105,6 +6383,11 @@ function normalizeTemplateTarget(target) {
   if (value === 'subsystems') return 'subsystem';
   if (value === 'general') return 'all';
   return value;
+}
+
+function getTemplateTargetLabel(target) {
+  const normalized = normalizeTemplateTarget(target);
+  return TEMPLATE_TARGET_OPTIONS.find((entry) => entry.value === normalized)?.label || 'All Profiles';
 }
 
 function getTemplatesForTarget(target) {
@@ -5141,12 +6424,15 @@ function renderTemplateEditorFields(profile) {
   if (!templateEditorFields) return;
   templateEditorFields.innerHTML = templateFieldSchema.map((field) => {
     const id = `templateEdit_${field.key}`;
-    const safeValue = escapeHtml(String(profile[field.key] ?? ''));
-    if (field.type === 'textarea') {
-      return `<label>${field.label}<textarea class="setting-input" id="${id}">${safeValue}</textarea></label>`;
+    if (field.key === 'target') {
+      const currentTarget = normalizeTemplateTarget(profile[field.key] || 'all');
+      return `<label>${field.label}<select class="setting-input" id="${id}">${TEMPLATE_TARGET_OPTIONS.map((option) => `<option value="${option.value}"${option.value === currentTarget ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}</select></label>`;
     }
-    return `<label>${field.label}<input class="setting-input" id="${id}" type="text" value="${safeValue}" /></label>`;
+    return renderFieldInput(field, id, String(profile[field.key] ?? ''));
   }).join('');
+
+  bindColorPickers(templateEditorFields);
+  bindAutoGrowingTextareas(templateEditorFields);
 }
 
 function readTemplateEditorValues(baseProfile) {
@@ -5154,9 +6440,10 @@ function readTemplateEditorValues(baseProfile) {
   templateFieldSchema.forEach((field) => {
     const input = document.getElementById(`templateEdit_${field.key}`);
     if (!input) return;
-    const value = (input.value || '').trim();
+    const value = getEditorInputValue(input);
     updated[field.key] = value || (baseProfile[field.key] ?? 'Not set');
   });
+  updated.target = normalizeTemplateTarget(updated.target || baseProfile.target || 'all');
   return updated;
 }
 
@@ -5165,7 +6452,7 @@ function renderTemplateProfile(profile) {
 
   templatePhoto.textContent = (profile.name?.[0] || 'T').toUpperCase();
   templateName.textContent = profile.name;
-  templateMeta.textContent = `${profile.target || 'all'} • ${profile.category || 'Uncategorized'}`;
+  templateMeta.textContent = `${getTemplateTargetLabel(profile.target || 'all')} • ${profile.category || 'Uncategorized'}`;
   templateBanner.style.setProperty('--headmate-color', profile.color || '#6c63ff');
 
   templateProfileGrid.innerHTML = templateFieldSchema.map((field) => {
@@ -5234,19 +6521,33 @@ if (templatesSearch) {
   });
 }
 
+function startTemplateCreation(target = 'all') {
+  creatingTemplate = true;
+  selectedTemplateKey = null;
+  const normalizedTarget = normalizeTemplateTarget(target || 'all');
+  const label = getTemplateTargetLabel(normalizedTarget);
+  const defaultName = `${label} Template ${Object.keys(customTemplates).length + 1}`;
+  const seed = createDefaultTemplate(defaultName, normalizedTarget);
+  renderTemplateProfile(seed);
+  renderTemplateEditorFields(seed);
+  if (saveTemplateBtn) saveTemplateBtn.disabled = false;
+  if (templateEditor) {
+    templateEditor.hidden = false;
+    templateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
 if (addTemplateBtn) {
   addTemplateBtn.addEventListener('click', () => {
-    creatingTemplate = true;
-    selectedTemplateKey = null;
-    const defaultName = `Template ${Object.keys(customTemplates).length + 1}`;
-    const seed = createDefaultTemplate(defaultName);
-    renderTemplateProfile(seed);
-    renderTemplateEditorFields(seed);
-    if (saveTemplateBtn) saveTemplateBtn.disabled = false;
-    if (templateEditor) {
-      templateEditor.hidden = false;
-      templateEditor.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    startTemplateCreation('all');
+  });
+}
+
+if (templateTargetButtons?.length) {
+  templateTargetButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+      startTemplateCreation(button.dataset.templateTargetButton || 'all');
+    });
   });
 }
 
@@ -5657,29 +6958,7 @@ const historySearchInput = document.getElementById('historySearchInput');
 const historyFilterSelect = document.getElementById('historyFilterSelect');
 const historySortSelect = document.getElementById('historySortSelect');
 
-const historyEvents = [
-  {
-    id: 'history-1',
-    title: 'Spring System Win',
-    date: '2026-03-31',
-    type: 'Win',
-    notes: 'Completed a major organization pass and stabilized multiple tracking modules.'
-  },
-  {
-    id: 'history-2',
-    title: 'Subsystem Anniversary',
-    date: '2026-02-12',
-    type: 'Anniversary',
-    notes: 'Marked the anniversary of a key subsystem becoming more active and collaborative.'
-  },
-  {
-    id: 'history-3',
-    title: 'Important Split Event',
-    date: '2025-11-04',
-    type: 'Split',
-    notes: 'Recorded a major structural change in the system timeline.'
-  }
-];
+const historyEvents = [];
 
 let editingHistoryEventId = null;
 let creatingHistoryEvent = false;
@@ -5897,9 +7176,23 @@ renderHistoryTimeline();
 const accounts = {};
 let loggedInAccountKey = null;
 let authToken = '';
+let remoteAccountDirectory = [];
+let remoteHubStateSaveTimer = null;
+let lastRemoteHubStateText = '';
+let lastRemoteAccountStateText = '';
+let initialSessionSyncPending = false;
 const ACCOUNT_STORAGE_KEY = 'ispd7.accounts.v1';
 const ACCOUNT_SESSION_KEY = 'ispd7.session.v1';
 const AUTH_TOKEN_KEY = 'ispd7.auth.token.v1';
+const HUB_STATE_STORAGE_KEY = 'ispd7.hub.state.v1';
+
+function cloneJsonData(value, fallback = {}) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? fallback));
+  } catch (_err) {
+    return Array.isArray(fallback) ? [...fallback] : { ...fallback };
+  }
+}
 
 function setAuthToken(token = '') {
   authToken = String(token || '').trim();
@@ -5909,6 +7202,26 @@ function setAuthToken(token = '') {
   } catch (_err) {
     // Ignore storage issues in restricted browsing modes.
   }
+}
+
+function clearInvalidAccountSession(message = 'Your saved account session is no longer available. Please sign in again.') {
+  if (!USE_BACKEND_AUTH) return;
+
+  setAuthToken('');
+  loggedInAccountKey = null;
+  remoteAccountDirectory = [];
+  lastRemoteHubStateText = '';
+  persistAccountState();
+
+  ['loginError', 'signupError', 'editError'].forEach((id) => {
+    const field = document.getElementById(id);
+    if (field && typeof showAccountError === 'function') showAccountError(field, message);
+  });
+
+  if (typeof setNoSystemSelected === 'function') setNoSystemSelected();
+  if (typeof setAppLockState === 'function') setAppLockState();
+  if (typeof renderAccountModule === 'function') renderAccountModule();
+  if (typeof navigateTo === 'function') navigateTo('profile');
 }
 
 function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
@@ -5923,8 +7236,46 @@ function normalizeRemoteAccount(account = {}, fallbackUsername = 'user') {
     profilePhoto: account.profilePhoto || displayName[0]?.toUpperCase() || 'U',
     banner: account.banner || `${displayName} Banner`,
     color: account.color || '#6c63ff',
-    createdAt: account.createdAt || new Date().toISOString()
+    friends: account.friends && typeof account.friends === 'object' ? { ...account.friends } : {},
+    friendProfiles: Array.isArray(account.friendProfiles) ? account.friendProfiles.map((entry) => ({ ...entry })) : [],
+    hubState: account.hubState && typeof account.hubState === 'object' ? cloneJsonData(account.hubState, {}) : {},
+    viewerTrustLevel: normalizeAccountTrustLevel(account.viewerTrustLevel, 'private'),
+    createdAt: account.createdAt || new Date().toISOString(),
+    updatedAt: account.updatedAt || account.createdAt || new Date().toISOString()
   };
+}
+
+function buildRemoteAccountStatePayload(account = getCurrentAccountRecord()) {
+  if (!account || typeof account !== 'object') return null;
+
+  const username = String(account.username || loggedInAccountKey || 'user').trim().toLowerCase() || 'user';
+  const name = String(account.name || username || 'User').trim() || 'User';
+  return {
+    name,
+    description: String(account.description || 'No description set.'),
+    tags: String(account.tags || 'Not set'),
+    customFields: String(account.customFields || 'Not set'),
+    profilePhoto: String(account.profilePhoto || name[0]?.toUpperCase() || 'U'),
+    banner: String(account.banner || `${name} Banner`),
+    color: String(account.color || '#6c63ff')
+  };
+}
+
+function buildAccountStoragePayload(accountsMap = accounts) {
+  const cachedAccounts = {};
+  Object.entries(accountsMap || {}).forEach(([key, account]) => {
+    if (!key || !account || typeof account !== 'object') return;
+    const cachedAccount = cloneJsonData(account, {});
+    if (cachedAccount.hubState && typeof cachedAccount.hubState === 'object') {
+      cachedAccount.hubState = {
+        version: Number(cachedAccount.hubState.version || 1),
+        updatedAt: cachedAccount.hubState.updatedAt || cachedAccount.updatedAt || new Date().toISOString(),
+        activeUser: cachedAccount.hubState.activeUser || 'No system'
+      };
+    }
+    cachedAccounts[key] = cachedAccount;
+  });
+  return cachedAccounts;
 }
 
 async function apiRequest(path, options = {}) {
@@ -5948,7 +7299,30 @@ async function apiRequest(path, options = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.error || 'Request failed.');
+    const message = String(data.error || 'Request failed.');
+    const currentAccountRoute = path === '/api/me' || path.startsWith('/api/me/') || path === '/api/accounts';
+    const shouldResetSession = USE_BACKEND_AUTH && currentAccountRoute && (
+      response.status === 401 || (response.status === 404 && /account not found/i.test(message))
+    );
+
+    if (shouldResetSession) {
+      clearInvalidAccountSession(
+        response.status === 401
+          ? 'Your sign-in expired. Please sign in again.'
+          : 'That saved account was not found on the server. Please sign in again.'
+      );
+    }
+
+    const error = new Error(
+      shouldResetSession
+        ? (response.status === 401
+          ? 'Your sign-in expired. Please sign in again.'
+          : 'That saved account was not found on the server. Please sign in again.')
+        : message
+    );
+    error.status = response.status;
+    error.path = path;
+    throw error;
   }
 
   return data;
@@ -5956,62 +7330,84 @@ async function apiRequest(path, options = {}) {
 
 function persistAccountState() {
   try {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(accounts));
-    if (loggedInAccountKey && accounts[loggedInAccountKey]) {
+    const currentAccounts = buildAccountStoragePayload(accounts);
+    const existingAccounts = readStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, {});
+    const mergedAccounts = existingAccounts && typeof existingAccounts === 'object' && !Array.isArray(existingAccounts)
+      ? { ...existingAccounts, ...currentAccounts }
+      : currentAccounts;
+
+    writeStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, mergedAccounts, {
+      maxBytes: Math.max(512 * 1024, MAX_SAFE_LOCAL_STATE_BYTES - (256 * 1024)),
+      warningMessage: 'Uploaded media made the account cache too large, so a compact backup was saved to stop data wipes. Your core data will still persist.'
+    });
+  } catch (_err) {
+    showStorageWarning('Some local data could not be cached because uploaded images/GIFs are too large. Smaller files or image URLs will save more reliably.');
+  }
+
+  try {
+    if (loggedInAccountKey) {
       localStorage.setItem(ACCOUNT_SESSION_KEY, loggedInAccountKey);
     } else {
       localStorage.removeItem(ACCOUNT_SESSION_KEY);
     }
   } catch (_err) {
-    // Ignore storage issues in restricted browsing modes.
+    // Ignore session persistence issues.
   }
 }
 
 function loadAccountState() {
   try {
-    const savedAccounts = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || '{}');
-    if (savedAccounts && typeof savedAccounts === 'object') {
+    const savedAccounts = readStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, {});
+    if (savedAccounts && typeof savedAccounts === 'object' && !Array.isArray(savedAccounts)) {
       Object.entries(savedAccounts).forEach(([key, value]) => {
         if (!key || !value || typeof value !== 'object') return;
-        accounts[key] = { ...value };
+        accounts[key] = normalizeRemoteAccount(value, key);
       });
     }
 
     authToken = String(localStorage.getItem(AUTH_TOKEN_KEY) || '').trim();
     const savedSession = (localStorage.getItem(ACCOUNT_SESSION_KEY) || '').trim().toLowerCase();
-    if (savedSession && accounts[savedSession]) {
+    if (savedSession && (!USE_BACKEND_AUTH || authToken)) {
+      if (!accounts[savedSession]) {
+        accounts[savedSession] = normalizeRemoteAccount({ username: savedSession, name: savedSession }, savedSession);
+      }
       loggedInAccountKey = savedSession;
     }
+    initialSessionSyncPending = USE_BACKEND_AUTH && Boolean(authToken && loggedInAccountKey);
   } catch (_err) {
     loggedInAccountKey = null;
     authToken = '';
+    initialSessionSyncPending = false;
   }
 }
 
 function isSignedIn() {
-  return Boolean(loggedInAccountKey && accounts[loggedInAccountKey]);
+  return USE_BACKEND_AUTH
+    ? Boolean(authToken && loggedInAccountKey)
+    : Boolean(loggedInAccountKey && accounts[loggedInAccountKey]);
 }
 
 function setAppLockState() {
   const locked = !isSignedIn();
   const profileHeader = document.querySelector('#page-profile .page-header h1');
 
-  document.body.classList.toggle('app-locked', locked);
+  document.body.classList.toggle('app-locked', false);
 
   navItems.forEach((item) => {
-    const allowed = !locked || item.dataset.module === 'profile';
+    const requiresAuth = item.dataset.module === 'accountFriends';
+    const allowed = !requiresAuth || !locked;
     item.classList.toggle('nav-item-locked', !allowed);
     item.setAttribute('aria-disabled', String(!allowed));
   });
 
   quickBtns.forEach((btn) => {
-    btn.disabled = locked;
-    btn.classList.toggle('btn-disabled', locked);
+    btn.disabled = false;
+    btn.classList.remove('btn-disabled');
   });
 
   if (globalSearchInput) {
-    globalSearchInput.disabled = locked;
-    globalSearchInput.placeholder = locked ? 'Sign in to use search...' : 'Search...';
+    globalSearchInput.disabled = false;
+    globalSearchInput.placeholder = 'Search...';
   }
 
   if (userSwitcherBtn) {
@@ -6020,13 +7416,15 @@ function setAppLockState() {
   }
 
   if (profileHeader) {
-    profileHeader.textContent = locked ? 'Sign In Required' : 'Member Profile';
+    profileHeader.textContent = locked ? 'Sign In to Sync' : 'Member Profile';
   }
 
   if (locked) {
     userDropdown?.classList.remove('open');
-    navItems.forEach((item) => item.classList.toggle('active', item.dataset.module === 'profile'));
-    pages.forEach((page) => page.classList.toggle('active', page.id === 'page-profile'));
+    if (!document.querySelector('.module-page.active')) {
+      const fallbackPage = document.getElementById('page-dashboard') || document.querySelector('.module-page');
+      if (fallbackPage) fallbackPage.classList.add('active');
+    }
   }
 }
 
@@ -6050,6 +7448,14 @@ const accountUsernameDisplay = document.getElementById('accountUsernameDisplay')
 const accountDescriptionDisplay = document.getElementById('accountDescriptionDisplay');
 const accountTagsDisplay = document.getElementById('accountTagsDisplay');
 const accountCustomFieldsDisplay = document.getElementById('accountCustomFieldsDisplay');
+const accountFriendsSummary = document.getElementById('accountFriendsSummary');
+const accountFriendsList = document.getElementById('accountFriendsList');
+const accountDirectoryList = document.getElementById('accountDirectoryList');
+const friendUsernameInput = document.getElementById('friendUsernameInput');
+const friendTrustLevelInput = document.getElementById('friendTrustLevelInput');
+const friendError = document.getElementById('friendError');
+const addAccountFriendBtn = document.getElementById('addAccountFriendBtn');
+const openAccountFriendsTabBtn = document.getElementById('openAccountFriendsTabBtn');
 const editAccountNameInput = document.getElementById('editAccountNameInput');
 const editAccountUsernameInput = document.getElementById('editAccountUsernameInput');
 const editAccountDescriptionInput = document.getElementById('editAccountDescriptionInput');
@@ -6070,6 +7476,211 @@ function showAccountError(el, msg) {
   el.hidden = !msg;
 }
 
+function normalizeAccountTrustLevel(level, fallback = 'friends') {
+  const normalized = String(level || '').trim().toLowerCase();
+  return PRIVACY_LEVELS.includes(normalized) ? normalized : fallback;
+}
+
+function getCurrentAccountRecord() {
+  return loggedInAccountKey && accounts[loggedInAccountKey] ? accounts[loggedInAccountKey] : null;
+}
+
+function getAccountFriendEntries(account = getCurrentAccountRecord()) {
+  if (!account) return [];
+
+  if (Array.isArray(account.friendProfiles) && account.friendProfiles.length) {
+    return account.friendProfiles
+      .map((entry) => ({
+        username: String(entry.username || '').trim().toLowerCase(),
+        name: String(entry.name || entry.username || 'Unknown account').trim(),
+        trustLevel: normalizeAccountTrustLevel(entry.trustLevel, 'friends'),
+        theirTrustLevel: normalizeAccountTrustLevel(entry.theirTrustLevel, ''),
+        profilePhoto: entry.profilePhoto || String(entry.name || entry.username || '?').trim()[0]?.toUpperCase() || '?',
+        color: entry.color || '#6c63ff'
+      }))
+      .filter((entry) => entry.username);
+  }
+
+  return Object.entries(account.friends || {}).map(([username, trustLevel]) => ({
+    username,
+    name: username,
+    trustLevel: normalizeAccountTrustLevel(trustLevel, 'friends'),
+    theirTrustLevel: '',
+    profilePhoto: username[0]?.toUpperCase() || '?',
+    color: '#6c63ff'
+  }));
+}
+
+async function refreshAccountDirectoryFromBackend() {
+  if (!USE_BACKEND_AUTH || !authToken) {
+    remoteAccountDirectory = [];
+    return;
+  }
+
+  try {
+    const result = await apiRequest('/api/accounts');
+    remoteAccountDirectory = Array.isArray(result.accounts)
+      ? result.accounts.map((entry) => ({
+          username: String(entry.username || '').trim().toLowerCase(),
+          name: String(entry.name || entry.username || 'Unknown account').trim(),
+          description: String(entry.description || 'No description set.'),
+          tags: String(entry.tags || 'Not set'),
+          profilePhoto: entry.profilePhoto || String(entry.name || entry.username || '?').trim()[0]?.toUpperCase() || '?',
+          color: entry.color || '#6c63ff',
+          trustLevel: normalizeAccountTrustLevel(entry.trustLevel, ''),
+          theirTrustLevel: normalizeAccountTrustLevel(entry.theirTrustLevel, ''),
+          createdAt: entry.createdAt || '',
+          updatedAt: entry.updatedAt || ''
+        }))
+      : [];
+  } catch (_err) {
+    remoteAccountDirectory = [];
+  }
+}
+
+function renderAccountFriendSection(account = getCurrentAccountRecord()) {
+  if (!accountFriendsList || !accountFriendsSummary) return;
+
+  if (!account) {
+    accountFriendsSummary.textContent = 'Sign in to manage your account friends.';
+    accountFriendsList.innerHTML = '<p class="headmate-hint" style="margin:0">Sign in to add, edit, or remove friends.</p>';
+    if (accountDirectoryList) {
+      accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">Sign in to view other known accounts.</p>';
+    }
+    return;
+  }
+
+  const entries = getAccountFriendEntries(account);
+  if (!entries.length) {
+    accountFriendsSummary.textContent = 'No account friends linked yet. Add a username and choose the trust label you want them to have.';
+    accountFriendsList.innerHTML = '<p class="headmate-hint" style="margin:0">No friend connections saved yet.</p>';
+  } else {
+    accountFriendsSummary.textContent = `${entries.length} account friend${entries.length === 1 ? '' : 's'} linked. Trust labels use the same privacy scale as the rest of the app.`;
+
+    accountFriendsList.innerHTML = entries.map((entry) => {
+      const selectedOptions = PRIVACY_LEVELS.filter((level) => level !== 'public')
+        .map((level) => `<option value="${level}"${entry.trustLevel === level ? ' selected' : ''}>${level.charAt(0).toUpperCase() + level.slice(1)}</option>`)
+        .join('');
+      return `
+        <article class="account-friend-card">
+          <div class="account-friend-main">
+            ${renderAvatarMarkup(entry.profilePhoto, entry.name[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
+            <div class="account-friend-meta">
+              <strong>${escapeHtml(entry.name)}</strong>
+              <span>@${escapeHtml(entry.username)}</span>
+              <span>Your trust: ${escapeHtml(entry.trustLevel)}</span>
+              ${entry.theirTrustLevel ? `<span>They set you as: ${escapeHtml(entry.theirTrustLevel)}</span>` : ''}
+            </div>
+          </div>
+          <div class="account-friend-actions">
+            <select class="setting-input" data-account-friend-trust="${escapeHtml(entry.username)}">${selectedOptions}</select>
+            <button class="btn-sm" type="button" data-remove-account-friend="${escapeHtml(entry.username)}">Remove</button>
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  if (!accountDirectoryList) return;
+  accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">Friend suggestions are turned off. Add friends by typing their exact username above.</p>';
+}
+
+async function saveAccountFriendLink(targetUsername = '', trustLevel = 'friends', options = {}) {
+  const account = getCurrentAccountRecord();
+  if (!account) return;
+
+  const cleanUsername = String(targetUsername || '').trim().replace(/^@+/, '').toLowerCase();
+  const normalizedTrust = normalizeAccountTrustLevel(trustLevel, 'friends');
+  const clearForm = Boolean(options.clearForm);
+  const silent = Boolean(options.silent);
+
+  if (!cleanUsername) {
+    showAccountError(friendError, 'Enter a username to add as a friend.');
+    return;
+  }
+  if (cleanUsername === account.username) {
+    showAccountError(friendError, 'You cannot friend your own account.');
+    return;
+  }
+
+  if (USE_BACKEND_AUTH) {
+    try {
+      const result = await apiRequest('/api/friends', {
+        method: 'POST',
+        body: JSON.stringify({ username: cleanUsername, trustLevel: normalizedTrust })
+      });
+      const savedAccount = normalizeRemoteAccount(result.account, account.username);
+      accounts[savedAccount.username] = savedAccount;
+      loggedInAccountKey = savedAccount.username;
+      persistAccountState();
+      await refreshAccountDirectoryFromBackend();
+      showAccountError(friendError, '');
+      if (clearForm && friendUsernameInput) friendUsernameInput.value = '';
+      if (clearForm && friendTrustLevelInput) friendTrustLevelInput.value = 'friends';
+      renderAccountModule();
+      if (!silent) safeAlert(`Friend settings saved for @${cleanUsername}.`);
+    } catch (err) {
+      showAccountError(friendError, err.message || 'Could not update friend settings.');
+    }
+    return;
+  }
+
+  if (!accounts[cleanUsername]) {
+    showAccountError(friendError, 'That username does not exist yet.');
+    return;
+  }
+
+  account.friends = { ...(account.friends || {}), [cleanUsername]: normalizedTrust };
+  account.friendProfiles = [];
+  accounts[cleanUsername].friends = {
+    ...(accounts[cleanUsername].friends || {}),
+    [account.username]: normalizeAccountTrustLevel(accounts[cleanUsername].friends?.[account.username], 'friends')
+  };
+  accounts[cleanUsername].friendProfiles = [];
+  persistAccountState();
+  showAccountError(friendError, '');
+  if (clearForm && friendUsernameInput) friendUsernameInput.value = '';
+  if (clearForm && friendTrustLevelInput) friendTrustLevelInput.value = 'friends';
+  renderAccountModule();
+  if (!silent) safeAlert(`Friend settings saved for @${cleanUsername}.`);
+}
+
+async function removeAccountFriendLink(targetUsername = '') {
+  const account = getCurrentAccountRecord();
+  if (!account) return;
+
+  const cleanUsername = String(targetUsername || '').trim().replace(/^@+/, '').toLowerCase();
+  if (!cleanUsername) return;
+
+  if (USE_BACKEND_AUTH) {
+    try {
+      const result = await apiRequest(`/api/friends/${encodeURIComponent(cleanUsername)}`, {
+        method: 'DELETE'
+      });
+      const savedAccount = normalizeRemoteAccount(result.account, account.username);
+      accounts[savedAccount.username] = savedAccount;
+      loggedInAccountKey = savedAccount.username;
+      persistAccountState();
+      await refreshAccountDirectoryFromBackend();
+      showAccountError(friendError, '');
+      renderAccountModule();
+      safeAlert(`Removed @${cleanUsername} from your friends.`);
+    } catch (err) {
+      showAccountError(friendError, err.message || 'Could not remove that friend.');
+    }
+    return;
+  }
+
+  if (account.friends) delete account.friends[cleanUsername];
+  account.friendProfiles = [];
+  if (accounts[cleanUsername]?.friends) delete accounts[cleanUsername].friends[account.username];
+  if (accounts[cleanUsername]) accounts[cleanUsername].friendProfiles = [];
+  persistAccountState();
+  showAccountError(friendError, '');
+  renderAccountModule();
+  safeAlert(`Removed @${cleanUsername} from your friends.`);
+}
+
 function renderAccountModule() {
   if (!accountLoginView) return;
 
@@ -6078,6 +7689,8 @@ function renderAccountModule() {
     accountLoginView.hidden = true;
     accountSignupView.hidden = true;
     accountProfileView.hidden = false;
+
+    rebuildUserDropdownOptions(getActiveUserName() !== NO_SYSTEM_USER ? getActiveUserName() : Object.keys(systemProfiles)[0] || '');
 
     const name = (acct.name || acct.username || 'User').trim();
     const photo = (acct.profilePhoto || name[0] || 'U').trim();
@@ -6096,13 +7709,22 @@ function renderAccountModule() {
       accountCustomFieldsDisplay.innerHTML = customMarkup || '';
       accountCustomFieldsDisplay.hidden = !customMarkup;
     }
+    renderAccountFriendSection(acct);
+    renderMessagesModule();
+    if (friendTrustLevelInput && !friendTrustLevelInput.value) friendTrustLevelInput.value = 'friends';
     if (editAccountNameInput) editAccountNameInput.value = name;
     if (editAccountUsernameInput) editAccountUsernameInput.value = acct.username || '';
     if (editAccountDescriptionInput) editAccountDescriptionInput.value = acct.description || '';
     if (editAccountTagsInput) editAccountTagsInput.value = acct.tags || '';
     if (editAccountCustomFieldsInput) editAccountCustomFieldsInput.value = acct.customFields || '';
-    if (editAccountPhotoInput) editAccountPhotoInput.value = acct.profilePhoto || initial;
-    if (editAccountBannerInput) editAccountBannerInput.value = acct.banner || `${name} Banner`;
+    if (editAccountPhotoInput) {
+      editAccountPhotoInput.value = acct.profilePhoto || initial;
+      primeStoredMediaInput(editAccountPhotoInput);
+    }
+    if (editAccountBannerInput) {
+      editAccountBannerInput.value = acct.banner || `${name} Banner`;
+      primeStoredMediaInput(editAccountBannerInput);
+    }
     if (editPasswordInput) editPasswordInput.value = '';
     if (editConfirmPasswordInput) editConfirmPasswordInput.value = '';
     showAccountError(editError, '');
@@ -6110,11 +7732,14 @@ function renderAccountModule() {
     accountLoginView.hidden = false;
     accountSignupView.hidden = true;
     accountProfileView.hidden = true;
+    userDropdown?.querySelectorAll('.user-option[data-user]').forEach((option) => option.remove());
+    setNoSystemSelected();
     if (loginUsernameInput) loginUsernameInput.value = '';
     if (loginPasswordInput) loginPasswordInput.value = '';
     showAccountError(loginError, '');
   }
 
+  renderMessagesModule();
   setAppLockState();
   renderDashboard();
 }
@@ -6156,7 +7781,12 @@ if (loginSubmitBtn) {
         accounts[account.username] = account;
         loggedInAccountKey = account.username;
         setAuthToken(result.token || '');
+        if (account.hubState && typeof applyHubStateSnapshot === 'function') {
+          applyHubStateSnapshot(account.hubState, { persistLocal: true });
+          lastRemoteHubStateText = JSON.stringify(account.hubState || {});
+        }
         persistAccountState();
+        await refreshAccountDirectoryFromBackend();
         renderAccountModule();
         navigateTo('dashboard');
       } catch (err) {
@@ -6166,8 +7796,12 @@ if (loginSubmitBtn) {
     }
 
     const acct = accounts[username];
-    if (!acct || acct.password !== password) {
-      showAccountError(loginError, 'Invalid username or password.');
+    if (!acct) {
+      showAccountError(loginError, 'No account exists with that username.');
+      return;
+    }
+    if (acct.password !== password) {
+      showAccountError(loginError, 'Incorrect password.');
       return;
     }
     loggedInAccountKey = username;
@@ -6201,7 +7835,12 @@ if (signupSubmitBtn) {
         accounts[account.username] = account;
         loggedInAccountKey = account.username;
         setAuthToken(result.token || '');
+        if (account.hubState && typeof applyHubStateSnapshot === 'function') {
+          applyHubStateSnapshot(account.hubState, { persistLocal: true });
+          lastRemoteHubStateText = JSON.stringify(account.hubState || {});
+        }
         persistAccountState();
+        await refreshAccountDirectoryFromBackend();
         renderAccountModule();
         navigateTo('dashboard');
       } catch (err) {
@@ -6221,12 +7860,62 @@ if (signupSubmitBtn) {
       banner: `${username} Banner`,
       password,
       color: palette[Object.keys(accounts).length % palette.length],
+      friends: {},
+      friendProfiles: [],
       createdAt: new Date().toISOString()
     };
     loggedInAccountKey = username;
     persistAccountState();
     renderAccountModule();
     navigateTo('dashboard');
+  });
+}
+
+if (addAccountFriendBtn) {
+  addAccountFriendBtn.addEventListener('click', () => {
+    saveAccountFriendLink(friendUsernameInput?.value || '', friendTrustLevelInput?.value || 'friends', { clearForm: true });
+  });
+}
+
+if (friendUsernameInput) {
+  friendUsernameInput.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    addAccountFriendBtn?.click();
+  });
+}
+
+if (accountFriendsList) {
+  accountFriendsList.addEventListener('click', (event) => {
+    const removeBtn = event.target.closest('[data-remove-account-friend]');
+    if (!removeBtn) return;
+    removeAccountFriendLink(removeBtn.dataset.removeAccountFriend || '');
+  });
+
+  accountFriendsList.addEventListener('change', (event) => {
+    const trustSelect = event.target.closest('[data-account-friend-trust]');
+    if (!trustSelect) return;
+    saveAccountFriendLink(trustSelect.dataset.accountFriendTrust || '', trustSelect.value, { silent: true });
+  });
+}
+
+if (accountDirectoryList) {
+  accountDirectoryList.addEventListener('click', (event) => {
+    const prefillBtn = event.target.closest('[data-prefill-account-friend]');
+    if (!prefillBtn) return;
+    if (friendUsernameInput) {
+      friendUsernameInput.value = prefillBtn.dataset.prefillAccountFriend || '';
+      friendUsernameInput.focus();
+    }
+    if (friendTrustLevelInput) {
+      friendTrustLevelInput.value = prefillBtn.dataset.prefillAccountTrust || 'friends';
+    }
+  });
+}
+
+if (openAccountFriendsTabBtn) {
+  openAccountFriendsTabBtn.addEventListener('click', () => {
+    navigateTo('accountFriends');
   });
 }
 
@@ -6239,8 +7928,8 @@ if (saveAccountBtn) {
     const description = (editAccountDescriptionInput?.value || '').trim();
     const tags = (editAccountTagsInput?.value || '').trim();
     const customFields = (editAccountCustomFieldsInput?.value || '').trim();
-    const profilePhoto = (editAccountPhotoInput?.value || '').trim();
-    const banner = (editAccountBannerInput?.value || '').trim();
+    const profilePhoto = getEditorInputValue(editAccountPhotoInput);
+    const banner = getEditorInputValue(editAccountBannerInput);
     const newPassword = editPasswordInput?.value || '';
     const confirmPassword = editConfirmPasswordInput?.value || '';
 
@@ -6295,6 +7984,11 @@ if (saveAccountBtn) {
         accounts[savedAccount.username] = savedAccount;
         loggedInAccountKey = savedAccount.username;
         if (result.token) setAuthToken(result.token);
+        if (savedAccount.hubState && typeof applyHubStateSnapshot === 'function') {
+          applyHubStateSnapshot(savedAccount.hubState, { persistLocal: true });
+          lastRemoteHubStateText = JSON.stringify(savedAccount.hubState || {});
+        }
+        await refreshAccountDirectoryFromBackend();
         showAccountError(editError, '');
         persistAccountState();
         renderAccountModule();
@@ -6409,29 +8103,29 @@ let customThemeTokens = {
 const LIGHT_THEME_PRESETS = {
   'default-light': { ...BASE_LIGHT_THEME, '--accent': '#6c63ff', '--accent-light': '#e7f7f7' },
   'pastel-rainbow': {
-    '--bg': '#fff6fb',
-    '--surface': '#fffdf8',
-    '--surface2': '#f6f8ff',
-    '--border': '#d9defc',
-    '--text': '#2d2340',
-    '--text-muted': '#6f6687',
-    '--accent': '#7c6cff',
-    '--accent-light': '#eee9ff',
-    '--danger': '#ff7ba5',
-    '--success': '#4ec7a5'
+    '--bg': '#fff2f2',
+    '--surface': '#fff8ee',
+    '--surface2': '#fffde2',
+    '--border': '#bde9c8',
+    '--text': '#24326a',
+    '--text-muted': '#6b56a6',
+    '--accent': '#4a8dff',
+    '--accent-light': '#e7f2ff',
+    '--danger': '#ff4f5e',
+    '--success': '#2ccf73'
   },
   'valentine-light': { '--bg': '#fff4f8', '--surface': '#ffffff', '--surface2': '#ffe9f1', '--border': '#f6cfe0', '--text': '#5e2f46', '--text-muted': '#a86586', '--accent': '#f472b6', '--accent-light': '#ffe3f1', '--danger': '#ec4899', '--success': '#fb7185' },
   'neon-rainbow': {
-    '--bg': '#f5f7ff',
-    '--surface': '#ffffff',
-    '--surface2': '#eef4ff',
-    '--border': '#c8d6ff',
-    '--text': '#1d2340',
-    '--text-muted': '#5e6b95',
-    '--accent': '#00b8ff',
-    '--accent-light': '#daf4ff',
-    '--danger': '#ff5db1',
-    '--success': '#2fd6a6'
+    '--bg': '#fff1f1',
+    '--surface': '#fff6eb',
+    '--surface2': '#fffbd5',
+    '--border': '#91e7a9',
+    '--text': '#1b2057',
+    '--text-muted': '#6a5bcb',
+    '--accent': '#00a6ff',
+    '--accent-light': '#d9f2ff',
+    '--danger': '#ff2f58',
+    '--success': '#00cf66'
   },
   'watermelon': { '--bg': '#f6fff7', '--surface': '#ffffff', '--surface2': '#eefbef', '--border': '#cfead3', '--text': '#2f4a3a', '--text-muted': '#678579', '--accent': '#f472b6', '--accent-light': '#ffe5ef', '--danger': '#ef4444', '--success': '#22c55e' },
   'sunset': { '--bg': '#fff4f8', '--surface': '#fffaf5', '--surface2': '#ffe9d6', '--border': '#ffd2c2', '--text': '#5b4a5f', '--text-muted': '#9b7f97', '--accent': '#ff9f68', '--accent-light': '#ffe2c8', '--danger': '#ff8fb1', '--success': '#8ecbff' },
@@ -6452,16 +8146,16 @@ const DARK_THEME_PRESETS = {
   'forest': { '--bg': '#0f1a14', '--surface': '#16251c', '--surface2': '#1d3025', '--border': '#32513f', '--text': '#def3e3', '--text-muted': '#9fc4aa', '--accent': '#22c55e', '--accent-light': '#1b3528', '--danger': '#65a30d', '--success': '#4ade80' },
   'mystic': { '--bg': '#1b1226', '--surface': '#261934', '--surface2': '#342244', '--border': '#53356f', '--text': '#ffe8f7', '--text-muted': '#d3add2', '--accent': '#c084fc', '--accent-light': '#3b2a4f', '--danger': '#f472b6', '--success': '#a78bfa' },
   'dark-rainbow': {
-    '--bg': '#10131f',
-    '--surface': '#171c2c',
-    '--surface2': '#202840',
-    '--border': '#36446d',
-    '--text': '#edf2ff',
-    '--text-muted': '#aab6d6',
-    '--accent': '#6ec8ff',
-    '--accent-light': '#223154',
-    '--danger': '#ff84c1',
-    '--success': '#63e4b2'
+    '--bg': '#170f23',
+    '--surface': '#1f1833',
+    '--surface2': '#1f2740',
+    '--border': '#2f7b55',
+    '--text': '#ffe8b9',
+    '--text-muted': '#ffb16f',
+    '--accent': '#4e8fff',
+    '--accent-light': '#2a2f67',
+    '--danger': '#ff5c4d',
+    '--success': '#40d986'
   },
   'night-glow': { '--bg': '#1F1E2F', '--surface': '#2E3360', '--surface2': '#3d4273', '--border': '#6B79FF', '--text': '#FBEAFF', '--text-muted': '#F295C6', '--accent': '#9EE6CF', '--accent-light': '#2f3a58', '--danger': '#F295C6', '--success': '#9EE6CF' },
   'custom-dark': null
@@ -6497,7 +8191,10 @@ function renderThemeTokenGrid(mode, container) {
     return `
       <div class="theme-token-field">
         <input type="color" data-theme-mode="${mode}" data-theme-key="${token.key}" value="${value}" title="${escapeHtml(token.label)}" />
-        <input type="text" class="setting-input" data-theme-mode="${mode}" data-theme-key="${token.key}" value="${escapeHtml(value)}" title="${escapeHtml(token.label)}" />
+        <div class="theme-token-meta">
+          <strong>${escapeHtml(token.label)}</strong>
+          <span data-theme-value data-theme-mode="${mode}" data-theme-key="${token.key}">${escapeHtml(value.toUpperCase())}</span>
+        </div>
       </div>
     `;
   }).join('');
@@ -6529,17 +8226,20 @@ function syncThemeTokenInputs(container) {
   container.querySelectorAll('input[type="color"][data-theme-key]').forEach((picker) => {
     const mode = picker.getAttribute('data-theme-mode');
     const key = picker.getAttribute('data-theme-key');
-    const textInput = container.querySelector(`input[type="text"][data-theme-mode="${mode}"][data-theme-key="${key}"]`);
-    if (!textInput) return;
+    const valueLabel = container.querySelector(`span[data-theme-value][data-theme-mode="${mode}"][data-theme-key="${key}"]`);
 
-    picker.addEventListener('input', () => {
-      textInput.value = picker.value;
-    });
+    const syncValue = () => {
+      const val = normalizeHexColor(picker.value, mode === 'light' ? '#6c63ff' : '#8b85ff');
+      if (picker.value !== val) picker.value = val;
+      if (valueLabel) valueLabel.textContent = val.toUpperCase();
+    };
 
-    textInput.addEventListener('input', () => {
-      const val = textInput.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(val)) picker.value = val;
-    });
+    syncValue();
+    if (picker.dataset.themeBound === 'true') return;
+
+    picker.addEventListener('input', syncValue);
+    picker.addEventListener('change', syncValue);
+    picker.dataset.themeBound = 'true';
   });
 }
 
@@ -6600,7 +8300,7 @@ if (applyCustomThemeTokensBtn) {
       const next = { ...base };
       if (!container) return next;
       THEME_TOKEN_META.forEach((token) => {
-        const input = container.querySelector(`input[type="text"][data-theme-mode="${mode}"][data-theme-key="${token.key}"]`);
+        const input = container.querySelector(`input[type="color"][data-theme-mode="${mode}"][data-theme-key="${token.key}"]`);
         if (!input) return;
         next[token.key] = normalizeHexColor(input.value.trim(), base[token.key]);
       });
@@ -6700,6 +8400,7 @@ if (saveHubInfoBtn) {
     hubSettings.description = (hubDescInput?.value || '').trim();
     hubSettings.icon        = (hubIconInput?.value || '').trim();
     applyHubInfo();
+    if (typeof persistHubState === 'function') persistHubState();
     safeAlert('Hub info saved.');
   });
 }
@@ -6715,12 +8416,108 @@ if (saveTerminologyBtn) {
     if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
     if (typeof renderPartnersTable === 'function') renderPartnersTable();
     if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
+    if (typeof persistHubState === 'function') persistHubState();
     safeAlert('Terminology updated.');
   });
 }
 
 // Pre-fill hub info fields from current state
 if (hubNameInput) hubNameInput.value = hubSettings.name;
+
+const MODULE_VISIBILITY_DEFAULTS = {
+  dashboard: true,
+  parts: true,
+  system: true,
+  friends: true,
+  accountFriends: true,
+  partners: true,
+  items: true,
+  tags: true,
+  journal: true,
+  chat: true,
+  messages: true,
+  health: true,
+  switchboard: true,
+  gallery: true,
+  templates: true,
+  calendar: true,
+  notifications: true
+};
+
+const moduleVisibilitySettings = { ...MODULE_VISIBILITY_DEFAULTS };
+const moduleVisibilityToggleIds = [
+  ['tabDashboardVisible', 'dashboard'],
+  ['tabPartsVisible', 'parts'],
+  ['tabSystemVisible', 'system'],
+  ['tabPartnersVisible', 'friends'],
+  ['tabAccountFriendsVisible', 'accountFriends'],
+  ['tabSubsystemsVisible', 'partners'],
+  ['tabItemsVisible', 'items'],
+  ['tabTagsVisible', 'tags'],
+  ['tabJournalVisible', 'journal'],
+  ['tabChatVisible', 'chat'],
+  ['tabMessagesVisible', 'messages'],
+  ['tabHealthVisible', 'health'],
+  ['tabRulesVisible', 'switchboard'],
+  ['tabGalleryVisible', 'gallery'],
+  ['tabTemplatesVisible', 'templates'],
+  ['tabHistoryVisible', 'calendar'],
+  ['tabInnerworldVisible', 'notifications']
+];
+
+function isModuleEnabled(module) {
+  if (!module || module === 'profile' || module === 'settings') return true;
+  return moduleVisibilitySettings[module] !== false;
+}
+
+function getFirstVisibleModule(preferred = 'dashboard') {
+  if (isModuleEnabled(preferred)) return preferred;
+  const nextItem = Array.from(navItems).find((item) => {
+    const module = item.dataset.module;
+    return module && module !== 'profile' && module !== 'settings' && isModuleEnabled(module);
+  });
+  return nextItem?.dataset.module || 'profile';
+}
+
+function healModuleVisibilitySettings() {
+  const criticalModules = ['chat', 'messages', 'health', 'switchboard', 'gallery', 'templates', 'calendar', 'notifications'];
+  const disabledCriticalCount = criticalModules.filter((key) => moduleVisibilitySettings[key] === false).length;
+
+  if (disabledCriticalCount >= 3) {
+    criticalModules.forEach((key) => {
+      moduleVisibilitySettings[key] = true;
+    });
+  }
+}
+
+function applyModuleVisibilitySettings() {
+  healModuleVisibilitySettings();
+  navItems.forEach((item) => {
+    const module = item.dataset.module;
+    item.hidden = !isModuleEnabled(module);
+  });
+
+  quickBtns.forEach((btn) => {
+    const module = btn.dataset.module;
+    btn.hidden = !isModuleEnabled(module);
+  });
+
+  const activeModule = document.querySelector('.nav-item.active')?.dataset.module;
+  if (activeModule && !isModuleEnabled(activeModule)) {
+    navigateTo(getFirstVisibleModule('dashboard'));
+  }
+}
+
+moduleVisibilityToggleIds.forEach(([id, key]) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.checked = moduleVisibilitySettings[key];
+  el.addEventListener('change', () => {
+    moduleVisibilitySettings[key] = el.checked;
+    applyModuleVisibilitySettings();
+    if (typeof persistHubState === 'function') persistHubState();
+  });
+});
 
 // --- Privacy & Safety ---
 const privacySettings = {
@@ -6751,7 +8548,11 @@ privacyToggleIds.forEach(([id, key]) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.checked = privacySettings[key];
-  el.addEventListener('change', () => { privacySettings[key] = el.checked; });
+  el.addEventListener('change', () => {
+    privacySettings[key] = el.checked;
+    if (typeof persistHubState === 'function') persistHubState();
+    renderDashboard();
+  });
 });
 
 // --- Notifications ---
@@ -6775,7 +8576,10 @@ notifToggleIds.forEach(([id, key]) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.checked = notificationSettings[key];
-  el.addEventListener('change', () => { notificationSettings[key] = el.checked; });
+  el.addEventListener('change', () => {
+    notificationSettings[key] = el.checked;
+    if (typeof persistHubState === 'function') persistHubState();
+  });
 });
 
 // --- Data Export & Clear ---
@@ -6790,13 +8594,24 @@ if (exportDataBtn) {
       privacySettings,
       notificationSettings,
       terminologySettings,
+      moduleVisibilitySettings,
       systemProfiles,
       headmateProfilesByUser,
+      headmateFoldersByUser,
+      chatMessagesByUser,
       partnerProfiles,
+      subsystemsByUser,
       itemProfiles,
       locationProfiles,
+      medicationsByUser,
+      medicationCheckinsByUser,
+      journalEntriesByUser,
+      journalShortcutsByUser,
       historyEvents,
       customTemplates,
+      selectedLightThemeKey,
+      selectedDarkThemeKey,
+      customThemeTokens,
       accounts: Object.fromEntries(
         Object.entries(accounts).map(([k, v]) => [k, { ...v, password: '[redacted]' }])
       )
@@ -6814,136 +8629,405 @@ if (exportDataBtn) {
 if (clearDataBtn) {
   clearDataBtn.addEventListener('click', () => {
     if (!safeConfirm('Clear ALL local hub data? This cannot be undone and will reset the page.')) return;
-    shouldSkipHubSnapshotSave = true;
     localStorage.clear();
     location.reload();
   });
 }
 
-const HUB_SNAPSHOT_STORAGE_KEY = 'ispd7.hub.snapshot.v2';
-let shouldSkipHubSnapshotSave = false;
-
-function replaceObjectContents(target, source) {
-  if (!target || typeof target !== 'object' || Array.isArray(target)) return;
+function replaceStoredObject(target, source = {}) {
   Object.keys(target).forEach((key) => delete target[key]);
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return;
-  Object.assign(target, source);
+  Object.entries(source && typeof source === 'object' ? source : {}).forEach(([key, value]) => {
+    target[key] = cloneJsonData(value, value);
+  });
 }
 
-function replaceArrayContents(target, source) {
-  if (!Array.isArray(target)) return;
-  const next = Array.isArray(source) ? source : [];
-  target.splice(0, target.length, ...next);
+function replaceStoredArray(target, source = []) {
+  target.splice(0, target.length, ...cloneJsonData(Array.isArray(source) ? source : [], []));
 }
 
-function getHubSnapshotPayload() {
-  return {
-    version: 2,
-    savedAt: new Date().toISOString(),
-    hubSettings,
-    terminologySettings,
-    privacySettings,
-    notificationSettings,
-    systemProfiles,
-    headmateProfilesByUser,
-    partnerProfiles,
-    itemProfiles,
-    locationProfiles,
-    customTemplates,
-    historyEvents,
-    accounts,
-    loggedInAccountKey,
-    authToken,
+function buildHubStateSnapshot() {
+  const snapshot = {
+    version: 1,
+    ownerAccountKey: loggedInAccountKey || '',
+    updatedAt: new Date().toISOString(),
+    hubSettings: cloneJsonData(hubSettings, {}),
+    privacySettings: cloneJsonData(privacySettings, {}),
+    notificationSettings: cloneJsonData(notificationSettings, {}),
+    terminologySettings: cloneJsonData(terminologySettings, {}),
+    moduleVisibilitySettings: cloneJsonData(moduleVisibilitySettings, {}),
+    systemProfiles: cloneJsonData(systemProfiles, {}),
+    headmateProfilesByUser: cloneJsonData(headmateProfilesByUser, {}),
+    headmateFoldersByUser: cloneJsonData(headmateFoldersByUser, {}),
+    chatMessagesByUser: cloneJsonData(chatMessagesByUser, {}),
+    directMessagesByAccount: cloneJsonData(directMessagesByAccount, {}),
+    partnerProfiles: cloneJsonData(partnerProfiles, {}),
+    subsystemsByUser: cloneJsonData(subsystemsByUser, {}),
+    itemProfiles: cloneJsonData(itemProfiles, {}),
+    locationProfiles: cloneJsonData(locationProfiles, {}),
+    medicationsByUser: cloneJsonData(medicationsByUser, {}),
+    medicationCheckinsByUser: cloneJsonData(medicationCheckinsByUser, {}),
+    journalEntriesByUser: cloneJsonData(journalEntriesByUser, {}),
+    journalShortcutsByUser: cloneJsonData(journalShortcutsByUser, {}),
+    historyEvents: cloneJsonData(historyEvents, []),
+    customTemplates: cloneJsonData(customTemplates, {}),
     selectedLightThemeKey,
     selectedDarkThemeKey,
-    customThemeTokens
+    customThemeTokens: cloneJsonData(customThemeTokens, {}),
+    activeUser: getActiveUserName()
+  };
+
+  return cloneForStorage(snapshot);
+}
+
+function getHubStateEntityCounts(snapshot = {}) {
+  const systemCount = Object.keys(snapshot?.systemProfiles || {}).length;
+  const headmateCount = Object.values(snapshot?.headmateProfilesByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+  const partnerCount = Object.keys(snapshot?.partnerProfiles || {}).length;
+  const subsystemCount = Object.values(snapshot?.subsystemsByUser || {}).reduce((sum, profiles) => {
+    return sum + Object.keys(profiles || {}).length;
+  }, 0);
+  const itemCount = Object.keys(snapshot?.itemProfiles || {}).length;
+  const locationCount = Object.keys(snapshot?.locationProfiles || {}).length;
+  const journalCount = Object.values(snapshot?.journalEntriesByUser || {}).reduce((sum, entries) => {
+    return sum + (Array.isArray(entries) ? entries.length : 0);
+  }, 0);
+
+  return {
+    systemCount,
+    headmateCount,
+    partnerCount,
+    subsystemCount,
+    itemCount,
+    locationCount,
+    journalCount,
+    total: systemCount + headmateCount + partnerCount + subsystemCount + itemCount + locationCount + journalCount
   };
 }
 
-function saveHubSnapshot() {
-  if (shouldSkipHubSnapshotSave) return;
+function applyHubStateSnapshot(saved = {}, options = {}) {
+  if (!saved || typeof saved !== 'object') return false;
 
+  Object.assign(hubSettings, saved.hubSettings || {});
+  Object.assign(privacySettings, saved.privacySettings || {});
+  Object.assign(notificationSettings, saved.notificationSettings || {});
+  Object.assign(terminologySettings, saved.terminologySettings || {});
+  Object.assign(moduleVisibilitySettings, MODULE_VISIBILITY_DEFAULTS, saved.moduleVisibilitySettings || {});
+
+  if (saved.customThemeTokens?.light && typeof saved.customThemeTokens.light === 'object') {
+    customThemeTokens.light = { ...customThemeTokens.light, ...saved.customThemeTokens.light };
+  }
+  if (saved.customThemeTokens?.dark && typeof saved.customThemeTokens.dark === 'object') {
+    customThemeTokens.dark = { ...customThemeTokens.dark, ...saved.customThemeTokens.dark };
+  }
+  if (saved.selectedLightThemeKey && Object.prototype.hasOwnProperty.call(LIGHT_THEME_PRESETS, saved.selectedLightThemeKey)) {
+    selectedLightThemeKey = saved.selectedLightThemeKey;
+  }
+  if (saved.selectedDarkThemeKey && Object.prototype.hasOwnProperty.call(DARK_THEME_PRESETS, saved.selectedDarkThemeKey)) {
+    selectedDarkThemeKey = saved.selectedDarkThemeKey;
+  }
+
+  replaceStoredObject(systemProfiles, saved.systemProfiles);
+  replaceStoredObject(headmateProfilesByUser, saved.headmateProfilesByUser);
+  replaceStoredObject(headmateFoldersByUser, saved.headmateFoldersByUser);
+  replaceStoredObject(chatMessagesByUser, saved.chatMessagesByUser);
+  replaceStoredObject(directMessagesByAccount, saved.directMessagesByAccount);
+  replaceStoredObject(partnerProfiles, saved.partnerProfiles);
+  replaceStoredObject(subsystemsByUser, saved.subsystemsByUser);
+  replaceStoredObject(itemProfiles, saved.itemProfiles);
+  replaceStoredObject(locationProfiles, saved.locationProfiles);
+  replaceStoredObject(medicationsByUser, saved.medicationsByUser);
+  replaceStoredObject(medicationCheckinsByUser, saved.medicationCheckinsByUser);
+  replaceStoredObject(journalEntriesByUser, saved.journalEntriesByUser);
+  replaceStoredObject(journalShortcutsByUser, saved.journalShortcutsByUser);
+  replaceStoredObject(customTemplates, saved.customTemplates);
+  replaceStoredArray(historyEvents, saved.historyEvents);
+
+  if (hubNameInput) hubNameInput.value = hubSettings.name || 'System Hub';
+  if (hubDescInput) hubDescInput.value = hubSettings.description || '';
+  if (hubIconInput) hubIconInput.value = hubSettings.icon || '';
+  if (lightThemeSelect) lightThemeSelect.value = selectedLightThemeKey;
+  if (darkThemeSelect) darkThemeSelect.value = selectedDarkThemeKey;
+
+  moduleVisibilityToggleIds.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(moduleVisibilitySettings[key]);
+  });
+  privacyToggleIds.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(privacySettings[key]);
+  });
+  notifToggleIds.forEach(([id, key]) => {
+    const el = document.getElementById(id);
+    if (el) el.checked = Boolean(notificationSettings[key]);
+  });
+
+  applyHubInfo();
+  applyTerminology();
+  applyThemeSelection();
+  applyModuleVisibilitySettings();
+  rebuildUserDropdownOptions(saved.activeUser || '');
+
+  if (typeof renderSystemProfiles === 'function') renderSystemProfiles();
+  if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
+  if (typeof renderPartnersTable === 'function') renderPartnersTable();
+  if (typeof renderSubsystemsGrid === 'function') renderSubsystemsGrid();
+  if (typeof renderItemsTable === 'function') renderItemsTable(itemsSearch?.value || '');
+  if (typeof renderLocationsTable === 'function') renderLocationsTable(locationsSearch?.value || '');
+  if (typeof renderTemplatesTable === 'function') renderTemplatesTable(templatesSearch?.value || '');
+  if (typeof renderMedicationTracker === 'function') renderMedicationTracker();
+  if (typeof renderJournalModule === 'function') renderJournalModule();
+  if (typeof renderHistoryTimeline === 'function') renderHistoryTimeline();
+  if (typeof renderAccountModule === 'function') renderAccountModule();
+  if (typeof renderDashboard === 'function') renderDashboard();
+
+  if (options.persistLocal) {
+    try {
+      writeStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, buildHubStateSnapshot(), {
+        maxBytes: MAX_SAFE_LOCAL_STATE_BYTES,
+        warningMessage: 'Uploaded media made the browser cache too large, so a compact backup was saved to stop data wipes. Use smaller images or image URLs for the most reliable persistence.'
+      });
+    } catch (_err) {
+      // Ignore local backup errors.
+    }
+  }
+
+  return true;
+}
+
+function persistHubState(options = {}) {
+  const dump = buildHubStateSnapshot();
+  const serialized = JSON.stringify(dump);
+  const accountPayload = buildRemoteAccountStatePayload();
+  const serializedAccount = JSON.stringify(accountPayload || {});
+
+  let storedSnapshot = null;
   try {
-    const payload = getHubSnapshotPayload();
-    localStorage.setItem(HUB_SNAPSHOT_STORAGE_KEY, JSON.stringify(payload));
+    storedSnapshot = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
   } catch (_err) {
-    // Ignore storage quota and private mode failures.
+    storedSnapshot = null;
+  }
+
+  const dumpCounts = getHubStateEntityCounts(dump);
+  const storedCounts = storedSnapshot ? getHubStateEntityCounts(storedSnapshot) : { total: 0 };
+  const dumpOwner = normalizeLookupName(dump.ownerAccountKey || '');
+  const storedOwner = normalizeLookupName(storedSnapshot?.ownerAccountKey || '');
+  const ownersComparable = !storedOwner || !dumpOwner || storedOwner === dumpOwner;
+  const shouldPreserveStoredLocal = ownersComparable
+    && storedCounts.total > 0
+    && (
+      dumpCounts.total === 0
+      || (storedCounts.total > dumpCounts.total && (!isSignedIn() || initialSessionSyncPending))
+    );
+
+  const localSnapshotToKeep = shouldPreserveStoredLocal && storedSnapshot ? storedSnapshot : dump;
+  const serializedLocalSnapshot = shouldPreserveStoredLocal && storedSnapshot ? JSON.stringify(storedSnapshot) : serialized;
+
+  writeStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, localSnapshotToKeep, {
+    maxBytes: MAX_SAFE_LOCAL_STATE_BYTES,
+    warningMessage: 'Uploaded media made the browser cache too large, so a compact backup was saved to stop data wipes. Use smaller images or image URLs for the most reliable persistence.'
+  });
+
+  if (estimateStringBytes(serializedLocalSnapshot) > MAX_SAFE_LOCAL_STATE_BYTES) {
+    showStorageWarning('Your saved data is getting too large for reliable browser storage. Smaller uploads or pasted image URLs will keep it from being wiped.');
+  }
+
+  if (options.remote === false || !USE_BACKEND_AUTH || !authToken || !loggedInAccountKey) {
+    return localSnapshotToKeep;
+  }
+
+  if (initialSessionSyncPending && !options.allowDuringInit) {
+    return localSnapshotToKeep;
+  }
+
+  const remoteBaseSnapshot = shouldPreserveStoredLocal && storedSnapshot ? storedSnapshot : dump;
+  const remoteSerialized = shouldPreserveStoredLocal && storedSnapshot ? JSON.stringify(storedSnapshot) : serialized;
+  const preferredRemoteState = estimateStringBytes(remoteSerialized) <= MAX_SAFE_REMOTE_STATE_BYTES
+    ? { value: remoteBaseSnapshot, serialized: remoteSerialized, compacted: false }
+    : buildStorageSafeClone(remoteBaseSnapshot, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
+
+  if (preferredRemoteState.serialized === lastRemoteHubStateText && serializedAccount === lastRemoteAccountStateText) {
+    return localSnapshotToKeep;
+  }
+
+  const flushRemoteState = async () => {
+    try {
+      let result;
+      try {
+        result = await apiRequest('/api/me/state', {
+          method: 'PUT',
+          keepalive: Boolean(options.immediate && estimateStringBytes(preferredRemoteState.serialized) < 60 * 1024),
+          body: JSON.stringify({
+            hubState: preferredRemoteState.value,
+            account: accountPayload || undefined
+          })
+        });
+      } catch (err) {
+        const shouldRetryCompact = !preferredRemoteState.compacted && (err?.status === 413 || /too large/i.test(String(err?.message || '')));
+        if (!shouldRetryCompact) throw err;
+
+        const compactRemoteState = buildStorageSafeClone(remoteBaseSnapshot, MAX_SAFE_REMOTE_STATE_BYTES, { stripAllEmbeddedMedia: true });
+        result = await apiRequest('/api/me/state', {
+          method: 'PUT',
+          keepalive: Boolean(options.immediate && estimateStringBytes(JSON.stringify(compactRemoteState.value)) < 60 * 1024),
+          body: JSON.stringify({
+            hubState: compactRemoteState.value,
+            account: accountPayload || undefined
+          })
+        });
+      }
+
+      if (result?.compacted) {
+        showStorageWarning('The latest upload-heavy save was compacted so the rest of your data would not wipe. Use smaller images or image URLs to keep every upload across refreshes.');
+      }
+
+      if (result?.account) {
+        const savedAccount = normalizeRemoteAccount(result.account, loggedInAccountKey);
+        accounts[savedAccount.username] = savedAccount;
+        loggedInAccountKey = savedAccount.username;
+        persistAccountState();
+        lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(savedAccount) || {});
+      } else {
+        lastRemoteAccountStateText = serializedAccount;
+      }
+      lastRemoteHubStateText = JSON.stringify(result?.hubState || preferredRemoteState.value);
+    } catch (err) {
+      showStorageWarning(err?.message || 'The latest save could not reach the backend.');
+    }
+  };
+
+  if (remoteHubStateSaveTimer) window.clearTimeout(remoteHubStateSaveTimer);
+  if (options.immediate) {
+    void flushRemoteState();
+  } else {
+    remoteHubStateSaveTimer = window.setTimeout(() => {
+      void flushRemoteState();
+    }, 850);
+  }
+
+  return localSnapshotToKeep;
+}
+
+function loadHubState() {
+  try {
+    const saved = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
+    if (!saved || typeof saved !== 'object') return;
+
+    if (USE_BACKEND_AUTH) {
+      const snapshotOwner = normalizeLookupName(saved.ownerAccountKey || '');
+      const activeOwner = normalizeLookupName(loggedInAccountKey || '');
+      if (!snapshotOwner || !activeOwner || snapshotOwner !== activeOwner) return;
+    }
+
+    applyHubStateSnapshot(saved);
+  } catch (_err) {
+    // Ignore malformed saved data and keep defaults.
   }
 }
 
-function loadHubSnapshot() {
+async function syncSessionFromBackend() {
+  if (!USE_BACKEND_AUTH || !authToken) {
+    initialSessionSyncPending = false;
+    return;
+  }
+
+  initialSessionSyncPending = true;
+
   try {
-    const raw = localStorage.getItem(HUB_SNAPSHOT_STORAGE_KEY);
-    if (!raw) return;
-    const snapshot = JSON.parse(raw);
-    if (!snapshot || typeof snapshot !== 'object') return;
-
-    replaceObjectContents(hubSettings, snapshot.hubSettings);
-    replaceObjectContents(terminologySettings, snapshot.terminologySettings);
-    replaceObjectContents(privacySettings, snapshot.privacySettings);
-    replaceObjectContents(notificationSettings, snapshot.notificationSettings);
-    replaceObjectContents(systemProfiles, snapshot.systemProfiles);
-    replaceObjectContents(headmateProfilesByUser, snapshot.headmateProfilesByUser);
-    replaceObjectContents(partnerProfiles, snapshot.partnerProfiles);
-    replaceObjectContents(itemProfiles, snapshot.itemProfiles);
-    replaceObjectContents(locationProfiles, snapshot.locationProfiles);
-    replaceObjectContents(customTemplates, snapshot.customTemplates);
-    replaceObjectContents(accounts, snapshot.accounts);
-    replaceArrayContents(historyEvents, snapshot.historyEvents);
-
-    if (snapshot.selectedLightThemeKey && LIGHT_THEME_PRESETS[snapshot.selectedLightThemeKey]) {
-      selectedLightThemeKey = snapshot.selectedLightThemeKey;
+    const result = await apiRequest('/api/me');
+    const remoteAccount = normalizeRemoteAccount(result.account, loggedInAccountKey || 'user');
+    if (loggedInAccountKey && loggedInAccountKey !== remoteAccount.username) {
+      delete accounts[loggedInAccountKey];
     }
-    if (snapshot.selectedDarkThemeKey && DARK_THEME_PRESETS[snapshot.selectedDarkThemeKey]) {
-      selectedDarkThemeKey = snapshot.selectedDarkThemeKey;
+    accounts[remoteAccount.username] = remoteAccount;
+    loggedInAccountKey = remoteAccount.username;
+    lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(remoteAccount) || {});
+    persistAccountState();
+
+    let localSnapshot = null;
+    try {
+      localSnapshot = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
+    } catch (_err) {
+      localSnapshot = null;
     }
 
-    if (snapshot.customThemeTokens && typeof snapshot.customThemeTokens === 'object') {
-      if (snapshot.customThemeTokens.light && typeof snapshot.customThemeTokens.light === 'object') {
-        customThemeTokens.light = { ...customThemeTokens.light, ...snapshot.customThemeTokens.light };
-      }
-      if (snapshot.customThemeTokens.dark && typeof snapshot.customThemeTokens.dark === 'object') {
-        customThemeTokens.dark = { ...customThemeTokens.dark, ...snapshot.customThemeTokens.dark };
-      }
+    const remoteSnapshot = remoteAccount.hubState && typeof remoteAccount.hubState === 'object' ? remoteAccount.hubState : null;
+    const normalizedRemoteUser = normalizeLookupName(remoteAccount.username);
+    const localOwner = normalizeLookupName(localSnapshot?.ownerAccountKey || '');
+    const localHasOwner = Boolean(localOwner);
+    const localMatchesAccount = localHasOwner && localOwner === normalizedRemoteUser;
+    const localOwnerUnknown = !localHasOwner;
+    const localUpdatedAt = (localMatchesAccount || localOwnerUnknown) ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
+    const remoteUpdatedAt = new Date(remoteSnapshot?.updatedAt || 0).getTime();
+    const localCounts = (localMatchesAccount || localOwnerUnknown) ? getHubStateEntityCounts(localSnapshot) : { total: 0 };
+    const remoteCounts = remoteSnapshot ? getHubStateEntityCounts(remoteSnapshot) : { total: 0 };
+    const shouldUseLocalSnapshot = localMatchesAccount
+      && localCounts.total > 0
+      && (localUpdatedAt > remoteUpdatedAt)
+      && localCounts.total >= remoteCounts.total;
+    const shouldProtectLocalFromEmptyRemote = localCounts.total > 0 && remoteCounts.total === 0;
+
+    if (remoteSnapshot && !shouldUseLocalSnapshot && !shouldProtectLocalFromEmptyRemote) {
+      applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
+      lastRemoteHubStateText = JSON.stringify(remoteSnapshot);
+    } else if ((shouldUseLocalSnapshot || shouldProtectLocalFromEmptyRemote) && localSnapshot) {
+      applyHubStateSnapshot(localSnapshot, { persistLocal: true });
+      persistHubState({ immediate: true, allowDuringInit: true });
     }
 
-    const sessionKey = String(snapshot.loggedInAccountKey || '').trim().toLowerCase();
-    loggedInAccountKey = sessionKey && accounts[sessionKey] ? sessionKey : null;
-    setAuthToken(snapshot.authToken || '');
+    await refreshAccountDirectoryFromBackend();
+    renderAccountModule();
   } catch (_err) {
-    // Ignore malformed snapshots and continue with defaults.
+    // Keep the last local session if the backend is temporarily unavailable.
+  } finally {
+    initialSessionSyncPending = false;
   }
 }
 
-loadHubSnapshot();
+let persistHubStateTimer = null;
+function scheduleHubStatePersist() {
+  if (persistHubStateTimer) window.clearTimeout(persistHubStateTimer);
+  persistHubStateTimer = window.setTimeout(() => {
+    persistHubState();
+    persistAccountState();
+  }, 650);
+}
 
-setInterval(saveHubSnapshot, 1000);
-window.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') saveHubSnapshot();
+['click', 'change', 'input'].forEach((eventName) => {
+  document.addEventListener(eventName, () => {
+    scheduleHubStatePersist();
+  }, true);
 });
-window.addEventListener('pagehide', saveHubSnapshot);
-window.addEventListener('beforeunload', saveHubSnapshot);
 
+window.addEventListener('pagehide', () => {
+  persistHubState({ immediate: true, allowDuringInit: true });
+  persistAccountState();
+});
+
+window.addEventListener('beforeunload', () => {
+  persistHubState({ immediate: true, allowDuringInit: true });
+  persistAccountState();
+});
+
+loadHubState();
 applyTerminology();
 applyThemeSelection();
+applyModuleVisibilitySettings();
+syncSessionFromBackend();
 
-if (typeof renderSystemProfiles === 'function') renderSystemProfiles();
-if (typeof renderPartnersTable === 'function') renderPartnersTable();
-if (typeof renderHeadmatesTable === 'function') renderHeadmatesTable();
-if (typeof renderLocationsTable === 'function') renderLocationsTable();
-if (typeof renderItemTable === 'function') renderItemTable();
-if (typeof renderTemplatesTable === 'function') renderTemplatesTable();
-if (typeof renderHistoryTimeline === 'function') renderHistoryTimeline();
-if (typeof renderAccountModule === 'function') renderAccountModule();
-if (typeof applyHubInfo === 'function') applyHubInfo();
-if (typeof renderDashboard === 'function') renderDashboard();
-
-if (systemEditColorPicker && systemEditColor) {
-  systemEditColorPicker.addEventListener('input', () => {
-    systemEditColor.value = systemEditColorPicker.value;
-  });
+if (systemEditColor) {
+  syncColorValuePill(systemEditColor);
   systemEditColor.addEventListener('input', () => {
-    const val = systemEditColor.value.trim();
-    if (/^#[0-9a-fA-F]{6}$/.test(val)) systemEditColorPicker.value = val;
+    syncColorValuePill(systemEditColor);
+  });
+  systemEditColor.addEventListener('change', () => {
+    syncColorValuePill(systemEditColor);
   });
 }
+
+enhanceMediaPickerInput(systemEditPhoto, { kind: 'photo' });
+enhanceMediaPickerInput(systemEditBanner, { kind: 'banner' });
+enhanceMediaPickerInput(editAccountPhotoInput, { kind: 'photo' });
+enhanceMediaPickerInput(editAccountBannerInput, { kind: 'banner' });
+bindAutoGrowingTextareas(document);
