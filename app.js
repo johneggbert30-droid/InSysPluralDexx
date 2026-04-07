@@ -7631,7 +7631,45 @@ function renderAccountFriendSection(account = getCurrentAccountRecord()) {
   }
 
   if (!accountDirectoryList) return;
-  accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">Friend suggestions are turned off. Add friends by typing their exact username above.</p>';
+
+  const knownAccounts = (Array.isArray(remoteAccountDirectory) && remoteAccountDirectory.length ? remoteAccountDirectory : Object.values(accounts || {}))
+    .map((entry) => ({
+      username: String(entry?.username || '').trim().toLowerCase(),
+      name: String(entry?.name || entry?.username || 'Unknown account').trim(),
+      description: String(entry?.description || 'No description set.'),
+      profilePhoto: entry?.profilePhoto || String(entry?.name || entry?.username || '?').trim()[0]?.toUpperCase() || '?',
+      color: entry?.color || '#6c63ff',
+      trustLevel: normalizeAccountTrustLevel(entry?.trustLevel, ''),
+      theirTrustLevel: normalizeAccountTrustLevel(entry?.theirTrustLevel, '')
+    }))
+    .filter((entry, index, list) => entry.username && entry.username !== account.username && list.findIndex((item) => item.username === entry.username) === index)
+    .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
+
+  if (!knownAccounts.length) {
+    accountDirectoryList.innerHTML = '<p class="headmate-hint" style="margin:0">No other accounts are available yet. Ask your friend to create an account first.</p>';
+    return;
+  }
+
+  accountDirectoryList.innerHTML = knownAccounts.map((entry) => {
+    const relationshipHint = entry.trustLevel
+      ? `Current trust: ${entry.trustLevel}`
+      : (entry.theirTrustLevel ? `They list you as: ${entry.theirTrustLevel}` : 'Ready to add as a friend');
+    return `
+      <article class="account-friend-card">
+        <div class="account-friend-main">
+          ${renderAvatarMarkup(entry.profilePhoto, entry.name[0]?.toUpperCase() || '?', entry.color || '#6c63ff', 'sm')}
+          <div class="account-friend-meta">
+            <strong>${escapeHtml(entry.name)}</strong>
+            <span>@${escapeHtml(entry.username)}</span>
+            <span>${escapeHtml(relationshipHint)}</span>
+          </div>
+        </div>
+        <div class="account-friend-actions">
+          <button class="btn-sm" type="button" data-prefill-account-friend="${escapeHtml(entry.username)}" data-prefill-account-trust="${escapeHtml(entry.trustLevel || 'friends')}">Add / Update</button>
+        </div>
+      </article>
+    `;
+  }).join('');
 }
 
 async function saveAccountFriendLink(targetUsername = '', trustLevel = 'friends', options = {}) {
@@ -8854,7 +8892,7 @@ if (exportDataBtn) {
     a.download = `ispd7-export-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    safeAlert('Backup downloaded. Move this JSON file to your other device, then use Import Data there.');
+    safeAlert('Backup downloaded. Automatic sync should work while both devices are signed into the same account, and this JSON can still be imported as a manual backup.');
   });
 }
 

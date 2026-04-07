@@ -21,12 +21,22 @@ const MAX_HEADMATES_PER_ACCOUNT = Number(process.env.MAX_HEADMATES_PER_ACCOUNT |
 const REMOVED_ACCOUNT_USERNAMES = new Set(['pandorasbox']);
 const STORE_KEY = 'users';
 const DEFAULT_STORE = { users: {} };
-const pool = DATABASE_URL
+let pool = DATABASE_URL
   ? new Pool({
     connectionString: DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    connectionTimeoutMillis: 10000,
+    idleTimeoutMillis: 30000
   })
   : null;
+
+function fallbackToFileStore(error) {
+  if (!pool) return;
+  const activePool = pool;
+  pool = null;
+  console.warn('Postgres unavailable, falling back to file persistence.', error?.message || error);
+  Promise.resolve(activePool.end()).catch(() => {});
+}
 
 app.use(cors({
   origin: FRONTEND_ORIGIN
@@ -100,31 +110,39 @@ function sanitizeStore(store = DEFAULT_STORE) {
 async function initDatabaseStore() {
   if (!pool) return;
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS app_store (
-      store_key TEXT PRIMARY KEY,
-      payload JSONB NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_store (
+        store_key TEXT PRIMARY KEY,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
 
-  await pool.query(
-    `INSERT INTO app_store (store_key, payload)
-     VALUES ($1, $2::jsonb)
-     ON CONFLICT (store_key) DO NOTHING`,
-    [STORE_KEY, JSON.stringify(DEFAULT_STORE)]
-  );
+    await pool.query(
+      `INSERT INTO app_store (store_key, payload)
+       VALUES ($1, $2::jsonb)
+       ON CONFLICT (store_key) DO NOTHING`,
+      [STORE_KEY, JSON.stringify(DEFAULT_STORE)]
+    );
+  } catch (error) {
+    fallbackToFileStore(error);
+  }
 }
 
 async function readStore() {
   if (pool) {
-    const result = await pool.query('SELECT payload FROM app_store WHERE store_key = $1', [STORE_KEY]);
-    const parsed = result.rows[0]?.payload || DEFAULT_STORE;
-    const { safeStore, changed } = sanitizeStore(cloneJson(parsed, DEFAULT_STORE));
-    if (changed) {
-      await writeStore(safeStore);
+    try {
+      const result = await pool.query('SELECT payload FROM app_store WHERE store_key = $1', [STORE_KEY]);
+      const parsed = result.rows[0]?.payload || DEFAULT_STORE;
+      const { safeStore, changed } = sanitizeStore(cloneJson(parsed, DEFAULT_STORE));
+      if (changed) {
+        await writeStore(safeStore);
+      }
+      return safeStore;
+    } catch (error) {
+      fallbackToFileStore(error);
     }
-    return safeStore;
   }
 
   ensureDataFile();
@@ -152,15 +170,19 @@ async function readStore() {
 
 async function writeStore(store) {
   if (pool) {
-    const { safeStore } = sanitizeStore(store);
-    await pool.query(
-      `INSERT INTO app_store (store_key, payload, updated_at)
-       VALUES ($1, $2::jsonb, NOW())
-       ON CONFLICT (store_key)
-       DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-      [STORE_KEY, JSON.stringify(safeStore)]
-    );
-    return;
+    try {
+      const { safeStore } = sanitizeStore(store);
+      await pool.query(
+        `INSERT INTO app_store (store_key, payload, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (store_key)
+         DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
+        [STORE_KEY, JSON.stringify(safeStore)]
+      );
+      return;
+    } catch (error) {
+      fallbackToFileStore(error);
+    }
   }
 
   ensureDataFile();
@@ -618,15 +640,16 @@ app.delete('/api/me', authRequired, async (req, res) => {
 });
 
 async function startServer() {
-  try {
-    await initDatabaseStore();
-    app.listen(PORT, () => {
-      console.log(`ISPD7 backend running on http://localhost:${PORT} using ${pool ? 'postgres' : 'file'} persistence`);
-    });
-  } catch (error) {
-    console.error('Failed to initialize backend persistence.', error);
-    process.exit(1);
-  }
+  app.listen(PORT, async () => {
+    console.log(`ISPD7 backend running on http://localhost:${PORT} using ${pool ? 'postgres' : 'file'} persistence`);
+    try {
+      await initDatabaseStore();
+      console.log(`ISPD7 persistence ready: ${pool ? 'postgres' : 'file'}`);
+    } catch (error) {
+      fallbackToFileStore(error);
+      console.log('ISPD7 persistence ready: file');
+    }
+  });
 }
 
 startServer();
