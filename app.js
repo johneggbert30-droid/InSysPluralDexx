@@ -7474,6 +7474,45 @@ function buildRemoteAccountStatePayload(account = getCurrentAccountRecord()) {
   };
 }
 
+function resolveHubStateSyncPreference(remoteAccount = {}, options = {}) {
+  const remoteSnapshot = remoteAccount?.hubState && typeof remoteAccount.hubState === 'object' ? remoteAccount.hubState : null;
+  const remoteCounts = remoteSnapshot ? getHubStateEntityCounts(remoteSnapshot) : { total: 0 };
+  const normalizedRemoteUser = normalizeLookupName(remoteAccount?.username || loggedInAccountKey || '');
+  const allowOwnerlessLocal = Boolean(options.allowOwnerlessLocal);
+
+  let localSnapshot = null;
+  try {
+    localSnapshot = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
+  } catch (_err) {
+    localSnapshot = null;
+  }
+
+  const localOwner = normalizeLookupName(localSnapshot?.ownerAccountKey || '');
+  const localHasOwner = Boolean(localOwner);
+  const localMatchesAccount = localHasOwner && localOwner === normalizedRemoteUser;
+  const localOwnerUnknown = !localHasOwner;
+  const canUseLocalSnapshot = Boolean(localSnapshot && (localMatchesAccount || (allowOwnerlessLocal && localOwnerUnknown)));
+  const localUpdatedAt = canUseLocalSnapshot ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
+  const remoteUpdatedAt = new Date(remoteSnapshot?.updatedAt || 0).getTime();
+  const localCounts = canUseLocalSnapshot ? getHubStateEntityCounts(localSnapshot) : { total: 0 };
+
+  return {
+    localSnapshot: canUseLocalSnapshot ? localSnapshot : null,
+    remoteSnapshot,
+    localCounts,
+    remoteCounts,
+    shouldUseLocalSnapshot: canUseLocalSnapshot
+      && localCounts.total > 0
+      && localUpdatedAt > remoteUpdatedAt
+      && localCounts.total >= remoteCounts.total,
+    shouldProtectLocalFromEmptyRemote: canUseLocalSnapshot
+      && localCounts.total > 0
+      && remoteCounts.total === 0,
+    localMatchesAccount,
+    localOwnerUnknown
+  };
+}
+
 async function finalizeRemoteAuthSuccess(result = {}, fallbackUsername = '', options = {}) {
   const localAccount = options.localAccount && typeof options.localAccount === 'object'
     ? cloneJsonData(options.localAccount, {})
@@ -7495,17 +7534,17 @@ async function finalizeRemoteAuthSuccess(result = {}, fallbackUsername = '', opt
   lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(accounts[account.username]) || {});
   persistAccountState();
 
-  const remoteSnapshot = account.hubState && typeof account.hubState === 'object' ? account.hubState : null;
-  const remoteCounts = getHubStateEntityCounts(remoteSnapshot || {});
-  const localSnapshot = buildHubStateSnapshot();
-  const localCounts = getHubStateEntityCounts(localSnapshot);
+  const syncPreference = resolveHubStateSyncPreference(accounts[account.username], {
+    allowOwnerlessLocal: preserveLocalState
+  });
 
-  if (preserveLocalState && localCounts.total > 0 && localCounts.total >= remoteCounts.total) {
-    persistHubState({ immediate: true, allowDuringInit: true });
-    lastRemoteHubStateText = JSON.stringify(buildHubStateSnapshot());
-  } else if (remoteSnapshot && typeof applyHubStateSnapshot === 'function') {
-    applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
-    lastRemoteHubStateText = JSON.stringify(remoteSnapshot || {});
+  if ((syncPreference.shouldUseLocalSnapshot || syncPreference.shouldProtectLocalFromEmptyRemote) && syncPreference.localSnapshot) {
+    applyHubStateSnapshot(syncPreference.localSnapshot, { persistLocal: true });
+    const savedSnapshot = persistHubState({ immediate: true, allowDuringInit: true });
+    lastRemoteHubStateText = JSON.stringify(savedSnapshot || syncPreference.localSnapshot || {});
+  } else if (syncPreference.remoteSnapshot && typeof applyHubStateSnapshot === 'function') {
+    applyHubStateSnapshot(syncPreference.remoteSnapshot, { persistLocal: true });
+    lastRemoteHubStateText = JSON.stringify(syncPreference.remoteSnapshot || {});
   }
 
   await refreshAccountDirectoryFromBackend();
@@ -7538,6 +7577,9 @@ function buildAccountStoragePayload(accountsMap = accounts) {
   Object.entries(accountsMap || {}).forEach(([key, account]) => {
     if (!key || !account || typeof account !== 'object') return;
     const cachedAccount = cloneJsonData(account, {});
+    const normalizedKey = String(cachedAccount.username || key || '').trim().toLowerCase();
+    if (!normalizedKey) return;
+    cachedAccount.username = normalizedKey;
     if (cachedAccount.hubState && typeof cachedAccount.hubState === 'object') {
       cachedAccount.hubState = {
         version: Number(cachedAccount.hubState.version || 1),
@@ -7545,7 +7587,7 @@ function buildAccountStoragePayload(accountsMap = accounts) {
         activeUser: cachedAccount.hubState.activeUser || 'No system'
       };
     }
-    cachedAccounts[key] = cachedAccount;
+    cachedAccounts[normalizedKey] = cachedAccount;
   });
   return cachedAccounts;
 }
@@ -7631,12 +7673,8 @@ async function apiRequest(path, options = {}) {
 function persistAccountState() {
   try {
     const currentAccounts = buildAccountStoragePayload(accounts);
-    const existingAccounts = readStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, {});
-    const mergedAccounts = existingAccounts && typeof existingAccounts === 'object' && !Array.isArray(existingAccounts)
-      ? { ...existingAccounts, ...currentAccounts }
-      : currentAccounts;
 
-    writeStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, mergedAccounts, {
+    writeStoredJsonWithBackup(ACCOUNT_STORAGE_KEY, ACCOUNT_STORAGE_BACKUP_KEY, currentAccounts, {
       maxBytes: Math.max(512 * 1024, MAX_SAFE_LOCAL_STATE_BYTES - (256 * 1024)),
       warningMessage: 'Uploaded media made the account cache too large, so a compact backup was saved to stop data wipes. Your core data will still persist.'
     });
@@ -7661,7 +7699,9 @@ function loadAccountState() {
     if (savedAccounts && typeof savedAccounts === 'object' && !Array.isArray(savedAccounts)) {
       Object.entries(savedAccounts).forEach(([key, value]) => {
         if (!key || !value || typeof value !== 'object') return;
-        accounts[key] = normalizeRemoteAccount(value, key);
+        const normalizedAccount = normalizeRemoteAccount(value, key);
+        if (!normalizedAccount.username) return;
+        accounts[normalizedAccount.username] = normalizedAccount;
       });
     }
 
@@ -8196,6 +8236,29 @@ if (signupSubmitBtn) {
     if (password.length < 6) { showAccountError(signupError, 'Password must be at least 6 characters.'); return; }
 
     if (USE_BACKEND_AUTH) {
+      const existingLocalAccount = accounts[username];
+      if (existingLocalAccount) {
+        if (existingLocalAccount.password && existingLocalAccount.password !== password) {
+          showAccountError(signupError, 'That username already exists on this device. Sign in with its existing password instead.');
+          return;
+        }
+        try {
+          await promoteLocalAccountToCloud(username, password, existingLocalAccount);
+          safeAlert('Your saved browser account is now connected to cloud sync.');
+          navigateTo('dashboard');
+          return;
+        } catch (err) {
+          if (err?.status === 409) {
+            showAccountError(signupError, 'That username is already taken. Sign in instead.');
+            return;
+          }
+          if (!isBackendUnavailableError(err)) {
+            showAccountError(signupError, err.message || 'Account creation failed.');
+            return;
+          }
+        }
+      }
+
       try {
         const result = await apiRequest('/api/auth/signup', {
           method: 'POST',
@@ -8232,6 +8295,10 @@ if (signupSubmitBtn) {
           renderAccountModule();
           safeAlert('Server offline — account created locally on this browser instead.');
           navigateTo('dashboard');
+          return;
+        }
+        if (err?.status === 409) {
+          showAccountError(signupError, 'That username is already taken. Sign in instead.');
           return;
         }
         showAccountError(signupError, err.message || 'Account creation failed.');
@@ -9496,35 +9563,17 @@ async function syncSessionFromBackend() {
     lastRemoteAccountStateText = JSON.stringify(buildRemoteAccountStatePayload(remoteAccount) || {});
     persistAccountState();
 
-    let localSnapshot = null;
-    try {
-      localSnapshot = readStoredJsonWithBackup(HUB_STATE_STORAGE_KEY, HUB_STATE_BACKUP_KEY, null);
-    } catch (_err) {
-      localSnapshot = null;
-    }
+    const syncPreference = resolveHubStateSyncPreference(remoteAccount, {
+      allowOwnerlessLocal: true
+    });
 
-    const remoteSnapshot = remoteAccount.hubState && typeof remoteAccount.hubState === 'object' ? remoteAccount.hubState : null;
-    const normalizedRemoteUser = normalizeLookupName(remoteAccount.username);
-    const localOwner = normalizeLookupName(localSnapshot?.ownerAccountKey || '');
-    const localHasOwner = Boolean(localOwner);
-    const localMatchesAccount = localHasOwner && localOwner === normalizedRemoteUser;
-    const localOwnerUnknown = !localHasOwner;
-    const localUpdatedAt = (localMatchesAccount || localOwnerUnknown) ? new Date(localSnapshot?.updatedAt || 0).getTime() : 0;
-    const remoteUpdatedAt = new Date(remoteSnapshot?.updatedAt || 0).getTime();
-    const localCounts = (localMatchesAccount || localOwnerUnknown) ? getHubStateEntityCounts(localSnapshot) : { total: 0 };
-    const remoteCounts = remoteSnapshot ? getHubStateEntityCounts(remoteSnapshot) : { total: 0 };
-    const shouldUseLocalSnapshot = localMatchesAccount
-      && localCounts.total > 0
-      && (localUpdatedAt > remoteUpdatedAt)
-      && localCounts.total >= remoteCounts.total;
-    const shouldProtectLocalFromEmptyRemote = localCounts.total > 0 && remoteCounts.total === 0;
-
-    if (remoteSnapshot && !shouldUseLocalSnapshot && !shouldProtectLocalFromEmptyRemote) {
-      applyHubStateSnapshot(remoteSnapshot, { persistLocal: true });
-      lastRemoteHubStateText = JSON.stringify(remoteSnapshot);
-    } else if ((shouldUseLocalSnapshot || shouldProtectLocalFromEmptyRemote) && localSnapshot) {
-      applyHubStateSnapshot(localSnapshot, { persistLocal: true });
-      persistHubState({ immediate: true, allowDuringInit: true });
+    if (syncPreference.remoteSnapshot && !syncPreference.shouldUseLocalSnapshot && !syncPreference.shouldProtectLocalFromEmptyRemote) {
+      applyHubStateSnapshot(syncPreference.remoteSnapshot, { persistLocal: true });
+      lastRemoteHubStateText = JSON.stringify(syncPreference.remoteSnapshot);
+    } else if ((syncPreference.shouldUseLocalSnapshot || syncPreference.shouldProtectLocalFromEmptyRemote) && syncPreference.localSnapshot) {
+      applyHubStateSnapshot(syncPreference.localSnapshot, { persistLocal: true });
+      const savedSnapshot = persistHubState({ immediate: true, allowDuringInit: true });
+      lastRemoteHubStateText = JSON.stringify(savedSnapshot || syncPreference.localSnapshot || {});
     }
 
     await refreshAccountDirectoryFromBackend();
@@ -9560,6 +9609,24 @@ window.addEventListener('beforeunload', () => {
   persistHubState({ immediate: true, allowDuringInit: true });
   persistAccountState();
 });
+
+window.addEventListener('focus', () => {
+  if (USE_BACKEND_AUTH && authToken && loggedInAccountKey) {
+    void syncSessionFromBackend();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && USE_BACKEND_AUTH && authToken && loggedInAccountKey) {
+    void syncSessionFromBackend();
+  }
+});
+
+window.setInterval(() => {
+  if (!document.hidden && USE_BACKEND_AUTH && authToken && loggedInAccountKey) {
+    void syncSessionFromBackend();
+  }
+}, 45000);
 
 loadHubState();
 applyTerminology();

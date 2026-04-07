@@ -534,6 +534,16 @@ app.put('/api/me/state', authRequired, async (req, res) => {
     return res.status(400).json({ error: limitError });
   }
 
+  const existingHubState = normalizeHubState(currentUser.hubState || {});
+  const existingCounts = getHubStateCounts(existingHubState);
+  const incomingCounts = getHubStateCounts(parsedHubState);
+  const preventedEmptyWipe = (incomingCounts.systemCount + incomingCounts.headmateCount) === 0
+    && (existingCounts.systemCount + existingCounts.headmateCount) > 0;
+
+  if (preventedEmptyWipe) {
+    parsedHubState = existingHubState;
+  }
+
   const accountPatch = req.body?.account;
   if (accountPatch && typeof accountPatch === 'object' && !Array.isArray(accountPatch)) {
     currentUser.name = String(accountPatch.name || currentUser.name || req.auth.username).trim() || req.auth.username;
@@ -554,6 +564,7 @@ app.put('/api/me/state', authRequired, async (req, res) => {
   return res.json({
     ok: true,
     compacted: compactedForStorage,
+    preservedExisting: preventedEmptyWipe,
     hubState: currentUser.hubState,
     account: sanitizeUser(currentUser, store, req.auth.username)
   });
