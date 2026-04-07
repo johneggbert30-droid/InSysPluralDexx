@@ -8603,40 +8603,125 @@ notifToggleIds.forEach(([id, key]) => {
   });
 });
 
-// --- Data Export & Clear ---
+// --- Data Export / Import / Clear ---
 const exportDataBtn = document.getElementById('exportDataBtn');
+const importDataBtn = document.getElementById('importDataBtn');
+const importDataFile = document.getElementById('importDataFile');
 const clearDataBtn  = document.getElementById('clearDataBtn');
+
+function buildPortableExportDump() {
+  return {
+    exportedAt: new Date().toISOString(),
+    hubStateSnapshot: buildHubStateSnapshot(),
+    hubSettings,
+    privacySettings,
+    notificationSettings,
+    terminologySettings,
+    moduleVisibilitySettings,
+    systemProfiles,
+    headmateProfilesByUser,
+    headmateFoldersByUser,
+    chatMessagesByUser,
+    directMessagesByAccount,
+    partnerProfiles,
+    subsystemsByUser,
+    itemProfiles,
+    locationProfiles,
+    medicationsByUser,
+    medicationCheckinsByUser,
+    journalEntriesByUser,
+    journalShortcutsByUser,
+    historyEvents,
+    customTemplates,
+    selectedLightThemeKey,
+    selectedDarkThemeKey,
+    customThemeTokens,
+    accounts: Object.fromEntries(
+      Object.entries(accounts).map(([k, v]) => [k, { ...v, password: '[redacted]' }])
+    )
+  };
+}
+
+function normalizeImportedHubPayload(payload = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+
+  const snapshot = payload.hubStateSnapshot && typeof payload.hubStateSnapshot === 'object'
+    ? payload.hubStateSnapshot
+    : payload;
+
+  return {
+    version: Number(snapshot.version || 1),
+    ownerAccountKey: String(snapshot.ownerAccountKey || payload.ownerAccountKey || loggedInAccountKey || '').trim().toLowerCase(),
+    updatedAt: snapshot.updatedAt || payload.updatedAt || new Date().toISOString(),
+    hubSettings: cloneJsonData(snapshot.hubSettings ?? payload.hubSettings ?? {}, {}),
+    privacySettings: cloneJsonData(snapshot.privacySettings ?? payload.privacySettings ?? {}, {}),
+    notificationSettings: cloneJsonData(snapshot.notificationSettings ?? payload.notificationSettings ?? {}, {}),
+    terminologySettings: cloneJsonData(snapshot.terminologySettings ?? payload.terminologySettings ?? {}, {}),
+    moduleVisibilitySettings: cloneJsonData(snapshot.moduleVisibilitySettings ?? payload.moduleVisibilitySettings ?? {}, {}),
+    systemProfiles: cloneJsonData(snapshot.systemProfiles ?? payload.systemProfiles ?? {}, {}),
+    headmateProfilesByUser: cloneJsonData(snapshot.headmateProfilesByUser ?? payload.headmateProfilesByUser ?? {}, {}),
+    headmateFoldersByUser: cloneJsonData(snapshot.headmateFoldersByUser ?? payload.headmateFoldersByUser ?? {}, {}),
+    chatMessagesByUser: cloneJsonData(snapshot.chatMessagesByUser ?? payload.chatMessagesByUser ?? {}, {}),
+    directMessagesByAccount: cloneJsonData(snapshot.directMessagesByAccount ?? payload.directMessagesByAccount ?? {}, {}),
+    partnerProfiles: cloneJsonData(snapshot.partnerProfiles ?? payload.partnerProfiles ?? {}, {}),
+    subsystemsByUser: cloneJsonData(snapshot.subsystemsByUser ?? payload.subsystemsByUser ?? {}, {}),
+    itemProfiles: cloneJsonData(snapshot.itemProfiles ?? payload.itemProfiles ?? {}, {}),
+    locationProfiles: cloneJsonData(snapshot.locationProfiles ?? payload.locationProfiles ?? {}, {}),
+    medicationsByUser: cloneJsonData(snapshot.medicationsByUser ?? payload.medicationsByUser ?? {}, {}),
+    medicationCheckinsByUser: cloneJsonData(snapshot.medicationCheckinsByUser ?? payload.medicationCheckinsByUser ?? {}, {}),
+    journalEntriesByUser: cloneJsonData(snapshot.journalEntriesByUser ?? payload.journalEntriesByUser ?? {}, {}),
+    journalShortcutsByUser: cloneJsonData(snapshot.journalShortcutsByUser ?? payload.journalShortcutsByUser ?? {}, {}),
+    historyEvents: cloneJsonData(snapshot.historyEvents ?? payload.historyEvents ?? [], []),
+    customTemplates: cloneJsonData(snapshot.customTemplates ?? payload.customTemplates ?? {}, {}),
+    selectedLightThemeKey: snapshot.selectedLightThemeKey || payload.selectedLightThemeKey || selectedLightThemeKey,
+    selectedDarkThemeKey: snapshot.selectedDarkThemeKey || payload.selectedDarkThemeKey || selectedDarkThemeKey,
+    customThemeTokens: cloneJsonData(snapshot.customThemeTokens ?? payload.customThemeTokens ?? {}, {}),
+    activeUser: snapshot.activeUser || payload.activeUser || getActiveUserName()
+  };
+}
+
+function importHubDataDump(payload = {}) {
+  const normalized = normalizeImportedHubPayload(payload);
+  if (!normalized) {
+    throw new Error('That file is not a valid ISPD7 JSON export.');
+  }
+
+  if (payload.accounts && typeof payload.accounts === 'object' && !Array.isArray(payload.accounts)) {
+    Object.entries(payload.accounts).forEach(([key, value]) => {
+      if (!key || !value || typeof value !== 'object') return;
+      const cleanKey = String(key).trim().toLowerCase();
+      const importedAccount = cloneJsonData(value, {});
+      if (importedAccount.password === '[redacted]') {
+        delete importedAccount.password;
+      }
+      const normalizedAccount = normalizeRemoteAccount(importedAccount, cleanKey);
+      if (!USE_BACKEND_AUTH) {
+        const preservedPassword = importedAccount.password || accounts[cleanKey]?.password;
+        accounts[cleanKey] = preservedPassword
+          ? { ...normalizedAccount, password: preservedPassword }
+          : normalizedAccount;
+        return;
+      }
+      accounts[cleanKey] = normalizedAccount;
+    });
+  }
+
+  if (USE_BACKEND_AUTH && loggedInAccountKey) {
+    normalized.ownerAccountKey = loggedInAccountKey;
+  } else if (normalized.ownerAccountKey && accounts[normalized.ownerAccountKey]) {
+    loggedInAccountKey = normalized.ownerAccountKey;
+  }
+
+  applyHubStateSnapshot(normalized, { persistLocal: true });
+  persistHubState({ immediate: true, allowDuringInit: true });
+  persistAccountState();
+
+  return getHubStateEntityCounts(normalized);
+}
 
 if (exportDataBtn) {
   exportDataBtn.addEventListener('click', () => {
-    const dump = {
-      exportedAt: new Date().toISOString(),
-      hubSettings,
-      privacySettings,
-      notificationSettings,
-      terminologySettings,
-      moduleVisibilitySettings,
-      systemProfiles,
-      headmateProfilesByUser,
-      headmateFoldersByUser,
-      chatMessagesByUser,
-      partnerProfiles,
-      subsystemsByUser,
-      itemProfiles,
-      locationProfiles,
-      medicationsByUser,
-      medicationCheckinsByUser,
-      journalEntriesByUser,
-      journalShortcutsByUser,
-      historyEvents,
-      customTemplates,
-      selectedLightThemeKey,
-      selectedDarkThemeKey,
-      customThemeTokens,
-      accounts: Object.fromEntries(
-        Object.entries(accounts).map(([k, v]) => [k, { ...v, password: '[redacted]' }])
-      )
-    };
+    const dump = buildPortableExportDump();
     const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -8644,6 +8729,32 @@ if (exportDataBtn) {
     a.download = `ispd7-export-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+  });
+}
+
+if (importDataBtn && importDataFile) {
+  importDataBtn.addEventListener('click', () => {
+    importDataFile.click();
+  });
+
+  importDataFile.addEventListener('change', async (event) => {
+    const [file] = Array.from(event.target.files || []);
+    if (!file) return;
+
+    try {
+      if (!safeConfirm('Import data from this JSON backup? This will replace the current local hub data in this browser.')) {
+        return;
+      }
+
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const counts = importHubDataDump(parsed);
+      safeAlert(`Import complete. Restored ${counts.total} records, including ${counts.systemCount} systems and ${counts.headmateCount} headmates.`);
+    } catch (error) {
+      safeAlert(error?.message || 'Could not import that file.');
+    } finally {
+      event.target.value = '';
+    }
   });
 }
 
