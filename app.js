@@ -366,7 +366,7 @@ function renderDashboardModulePreviews() {
   if (!dashboardModulePreviewGrid) return;
 
   const user = typeof getActiveUserName === 'function' ? getActiveUserName() : 'Alice';
-  const activeHeadmates = typeof getActiveHeadmateProfiles === 'function' ? Object.values(getActiveHeadmateProfiles()) : [];
+  const accountHeadmates = typeof getAllHeadmateProfilesForAccount === 'function' ? getAllHeadmateProfilesForAccount() : [];
   const systemList = typeof systemProfiles === 'object' ? Object.keys(systemProfiles) : [];
   const partnerList = typeof partnerProfiles === 'object' ? Object.values(partnerProfiles) : [];
   const subsystemList = typeof getActiveSubsystems === 'function' ? Object.values(getActiveSubsystems()) : [];
@@ -388,8 +388,8 @@ function renderDashboardModulePreviews() {
 
   const previewMap = {
     parts: {
-      count: activeHeadmates.length,
-      summary: activeHeadmates.slice(0, 3).map((profile) => profile.name).join(', ') || `No ${getPluralTerm('headmates').toLowerCase()} yet`,
+      count: accountHeadmates.length,
+      summary: accountHeadmates.slice(0, 3).map((profile) => profile?.name || 'Unnamed').join(', ') || `No ${getPluralTerm('headmates').toLowerCase()} yet`,
       meta: 'Folders, tags, and profile cards'
     },
     system: {
@@ -503,7 +503,9 @@ function renderDashboard() {
   try {
     const user = getActiveUserName();
     const systemsCount = document.querySelectorAll('.user-option[data-user]').length;
-    const headmateCount = Object.keys(getActiveHeadmateProfiles()).length;
+    const headmateCount = typeof getTotalHeadmateCountForAccount === 'function'
+      ? getTotalHeadmateCountForAccount()
+      : Object.keys(getActiveHeadmateProfiles()).length;
     const journalCount = ensureJournalEntryStore(user).length;
 
     if (dashboardActiveMembersStat) {
@@ -841,10 +843,12 @@ function getSystemCountForAccount() {
   return Object.keys(systemProfiles || {}).length;
 }
 
+function getAllHeadmateProfilesForAccount() {
+  return Object.values(headmateProfilesByUser || {}).flatMap((profiles) => Object.values(profiles || {}));
+}
+
 function getTotalHeadmateCountForAccount() {
-  return Object.values(headmateProfilesByUser || {}).reduce((sum, profiles) => {
-    return sum + Object.keys(profiles || {}).length;
-  }, 0);
+  return getAllHeadmateProfilesForAccount().length;
 }
 
 function canCreateSystemProfile(additionalSystems = 1, { silent = false } = {}) {
