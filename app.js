@@ -7298,6 +7298,29 @@ function buildAccountStoragePayload(accountsMap = accounts) {
   return cachedAccounts;
 }
 
+function isBackendUnavailableError(error) {
+  if (error?.isNetworkError) return true;
+  const message = String(error?.message || '').trim().toLowerCase();
+  return !error?.status && (
+    !message
+    || message === 'failed to fetch'
+    || message.includes('networkerror')
+    || message.includes('network request failed')
+    || message.includes('load failed')
+    || message.includes('timed out')
+    || message.includes('could not be reached')
+  );
+}
+
+function createBackendUnavailableError(path, originalError) {
+  const error = new Error('The server could not be reached. Refresh once and try again — local browser save mode is still available.');
+  error.path = path;
+  error.status = originalError?.status;
+  error.isNetworkError = true;
+  error.cause = originalError;
+  return error;
+}
+
 async function apiRequest(path, options = {}) {
   if (!API_BASE_URL) {
     throw new Error('Backend URL is not configured yet.');
@@ -7311,11 +7334,16 @@ async function apiRequest(path, options = {}) {
     headers.set('Authorization', `Bearer ${authToken}`);
   }
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers,
-    keepalive: Boolean(options.keepalive)
-  });
+  let response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+      keepalive: Boolean(options.keepalive)
+    });
+  } catch (error) {
+    throw createBackendUnavailableError(path, error);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -7816,6 +7844,23 @@ if (loginSubmitBtn) {
         renderAccountModule();
         navigateTo('dashboard');
       } catch (err) {
+        if (isBackendUnavailableError(err)) {
+          const acct = accounts[username];
+          if (!acct) {
+            showAccountError(loginError, 'The server is offline right now. Create an account below to sign in locally on this browser.');
+            return;
+          }
+          if (acct.password !== password) {
+            showAccountError(loginError, 'Incorrect password.');
+            return;
+          }
+          loggedInAccountKey = username;
+          persistAccountState();
+          renderAccountModule();
+          safeAlert('Server offline — signed in locally on this browser instead.');
+          navigateTo('dashboard');
+          return;
+        }
         showAccountError(loginError, err.message || 'Sign-in failed.');
       }
       return;
@@ -7870,6 +7915,33 @@ if (signupSubmitBtn) {
         renderAccountModule();
         navigateTo('dashboard');
       } catch (err) {
+        if (isBackendUnavailableError(err)) {
+          if (accounts[username]) {
+            showAccountError(signupError, 'That username already exists in this browser. Sign in instead.');
+            return;
+          }
+          const palette = ['#6c63ff','#ff6584','#43d9ad','#f5a623','#a29bfe','#fd79a8','#0984e3','#e17055'];
+          accounts[username] = {
+            username,
+            name: username,
+            description: 'No description set.',
+            tags: 'Not set',
+            customFields: 'Not set',
+            profilePhoto: username[0]?.toUpperCase() || 'U',
+            banner: `${username} Banner`,
+            password,
+            color: palette[Object.keys(accounts).length % palette.length],
+            friends: {},
+            friendProfiles: [],
+            createdAt: new Date().toISOString()
+          };
+          loggedInAccountKey = username;
+          persistAccountState();
+          renderAccountModule();
+          safeAlert('Server offline — account created locally on this browser instead.');
+          navigateTo('dashboard');
+          return;
+        }
         showAccountError(signupError, err.message || 'Account creation failed.');
       }
       return;
@@ -8027,6 +8099,26 @@ if (saveAccountBtn) {
         renderAccountModule();
         safeAlert('Profile saved.');
       } catch (err) {
+        if (isBackendUnavailableError(err)) {
+          if (newPassword) updated.password = newPassword;
+
+          if (username !== loggedInAccountKey) {
+            delete accounts[loggedInAccountKey];
+            accounts[username] = updated;
+            loggedInAccountKey = username;
+          } else {
+            accounts[loggedInAccountKey] = updated;
+          }
+
+          showAccountError(editError, '');
+          persistAccountState();
+          if (typeof persistHubState === 'function') {
+            persistHubState({ immediate: true, allowDuringInit: true, remote: false });
+          }
+          renderAccountModule();
+          safeAlert('Profile saved locally because the server could not be reached.');
+          return;
+        }
         showAccountError(editError, err.message || 'Could not save profile.');
       }
       return;
@@ -8075,8 +8167,11 @@ if (deleteAccountBtn) {
       try {
         await apiRequest('/api/me', { method: 'DELETE' });
       } catch (err) {
-        showAccountError(editError, err.message || 'Could not delete account.');
-        return;
+        if (!isBackendUnavailableError(err)) {
+          showAccountError(editError, err.message || 'Could not delete account.');
+          return;
+        }
+        safeAlert('Server offline — removing the account from this browser only.');
       }
     }
 
