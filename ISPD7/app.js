@@ -8397,7 +8397,7 @@ function applyTerminology() {
   setText('#subsystemProfile .headmate-kicker', getSingularTerm('subsystem'));
 
   if (addHeadmateBtn) addHeadmateBtn.textContent = `+ Add ${getSingularTerm('headmates')}`;
-  if (bulkAddHeadmatesBtn) bulkAddHeadmatesBtn.textContent = `Bulk Add ${getTermLabel('headmates')}`;
+  if (bulkAddHeadmatesBtn) bulkAddHeadmatesBtn.textContent = `Bulk Add ${getTermLabel('headmates')} by List`;
   if (linkHeadmateSubsystemBtn) linkHeadmateSubsystemBtn.textContent = `Link ${getSingularTerm('subsystem')}`;
   if (linkHeadmateBtn) linkHeadmateBtn.textContent = `+ Link ${getSingularTerm('headmates')}`;
   document.querySelector('.quick-btn[data-module="journal"]')?.replaceChildren(document.createTextNode(`${getTermLabel('system')} Journal`));
