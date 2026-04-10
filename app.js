@@ -7830,30 +7830,65 @@ function getCurrentAccountRecord() {
   return loggedInAccountKey && accounts[loggedInAccountKey] ? accounts[loggedInAccountKey] : null;
 }
 
+function getFriendShowcaseDetails(entry = {}, accountRecord = null) {
+  const hubState = entry?.hubState && typeof entry.hubState === 'object'
+    ? entry.hubState
+    : (accountRecord?.hubState && typeof accountRecord.hubState === 'object' ? accountRecord.hubState : {});
+
+  const systemNames = Array.isArray(entry?.systemNames) && entry.systemNames.length
+    ? entry.systemNames.map((name) => String(name || '').trim()).filter(Boolean)
+    : Object.entries(hubState?.systemProfiles || {}).map(([key, profile]) => String(profile?.name || key || '').trim()).filter(Boolean);
+
+  const headmateNames = Array.isArray(entry?.headmateNames) && entry.headmateNames.length
+    ? entry.headmateNames.map((name) => String(name || '').trim()).filter(Boolean)
+    : Object.values(hubState?.headmateProfilesByUser || {}).flatMap((profiles) => {
+        return Object.entries(profiles || {})
+          .map(([key, profile]) => String(profile?.name || key || '').trim())
+          .filter(Boolean);
+      });
+
+  return {
+    systemCount: Number.isFinite(Number(entry?.systemCount)) ? Number(entry.systemCount) : Object.keys(hubState?.systemProfiles || {}).length,
+    headmateCount: Number.isFinite(Number(entry?.headmateCount)) ? Number(entry.headmateCount) : headmateNames.length,
+    systemNames,
+    headmateNames,
+    activeSystem: String(entry?.activeSystem || hubState?.activeUser || 'No system').trim() || 'No system'
+  };
+}
+
 function getAccountFriendEntries(account = getCurrentAccountRecord()) {
   if (!account) return [];
 
   if (Array.isArray(account.friendProfiles) && account.friendProfiles.length) {
     return account.friendProfiles
-      .map((entry) => ({
-        username: String(entry.username || '').trim().toLowerCase(),
-        name: String(entry.name || entry.username || 'Unknown account').trim(),
-        trustLevel: normalizeAccountTrustLevel(entry.trustLevel, 'friends'),
-        theirTrustLevel: normalizeAccountTrustLevel(entry.theirTrustLevel, ''),
-        profilePhoto: entry.profilePhoto || String(entry.name || entry.username || '?').trim()[0]?.toUpperCase() || '?',
-        color: entry.color || '#6c63ff'
-      }))
+      .map((entry) => {
+        const showcase = getFriendShowcaseDetails(entry);
+        return {
+          username: String(entry.username || '').trim().toLowerCase(),
+          name: String(entry.name || entry.username || 'Unknown account').trim(),
+          trustLevel: normalizeAccountTrustLevel(entry.trustLevel, 'friends'),
+          theirTrustLevel: normalizeAccountTrustLevel(entry.theirTrustLevel, ''),
+          profilePhoto: entry.profilePhoto || String(entry.name || entry.username || '?').trim()[0]?.toUpperCase() || '?',
+          color: entry.color || '#6c63ff',
+          ...showcase
+        };
+      })
       .filter((entry) => entry.username);
   }
 
-  return Object.entries(account.friends || {}).map(([username, trustLevel]) => ({
-    username,
-    name: username,
-    trustLevel: normalizeAccountTrustLevel(trustLevel, 'friends'),
-    theirTrustLevel: '',
-    profilePhoto: username[0]?.toUpperCase() || '?',
-    color: '#6c63ff'
-  }));
+  return Object.entries(account.friends || {}).map(([username, trustLevel]) => {
+    const linkedAccount = accounts[username] || null;
+    const showcase = getFriendShowcaseDetails({}, linkedAccount);
+    return {
+      username,
+      name: linkedAccount?.name || username,
+      trustLevel: normalizeAccountTrustLevel(trustLevel, 'friends'),
+      theirTrustLevel: normalizeAccountTrustLevel(linkedAccount?.friends?.[account.username], ''),
+      profilePhoto: linkedAccount?.profilePhoto || username[0]?.toUpperCase() || '?',
+      color: linkedAccount?.color || '#6c63ff',
+      ...showcase
+    };
+  });
 }
 
 async function refreshAccountDirectoryFromBackend() {
@@ -7903,6 +7938,14 @@ function renderAccountFriendSection(account = getCurrentAccountRecord()) {
       const selectedOptions = PRIVACY_LEVELS.filter((level) => level !== 'public')
         .map((level) => `<option value="${level}"${entry.trustLevel === level ? ' selected' : ''}>${level.charAt(0).toUpperCase() + level.slice(1)}</option>`)
         .join('');
+      const systemSummary = entry.systemNames?.length
+        ? entry.systemNames.slice(0, 3).join(', ')
+        : 'No systems added yet';
+      const headmateSummary = entry.headmateNames?.length
+        ? entry.headmateNames.slice(0, 4).join(', ')
+        : `No ${getPluralTerm('headmates').toLowerCase()} added yet`;
+      const systemCountLabel = `${entry.systemCount} system${entry.systemCount === 1 ? '' : 's'}`;
+      const headmateCountLabel = `${entry.headmateCount} ${getTermCountLabel('headmates', entry.headmateCount).toLowerCase()}`;
       return `
         <article class="account-friend-card">
           <div class="account-friend-main">
@@ -7912,6 +7955,10 @@ function renderAccountFriendSection(account = getCurrentAccountRecord()) {
               <span>@${escapeHtml(entry.username)}</span>
               <span>Your trust: ${escapeHtml(entry.trustLevel)}</span>
               ${entry.theirTrustLevel ? `<span>They set you as: ${escapeHtml(entry.theirTrustLevel)}</span>` : ''}
+              <span>Systems: ${escapeHtml(systemCountLabel)}${entry.activeSystem && entry.activeSystem !== NO_SYSTEM_USER ? ` • Active: ${escapeHtml(entry.activeSystem)}` : ''}</span>
+              <span>${escapeHtml(systemSummary)}</span>
+              <span>${escapeHtml(getPluralTerm('headmates'))}: ${escapeHtml(headmateCountLabel)}</span>
+              <span>${escapeHtml(headmateSummary)}</span>
             </div>
           </div>
           <div class="account-friend-actions">

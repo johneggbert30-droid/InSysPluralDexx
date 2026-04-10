@@ -251,6 +251,27 @@ function getHubStateCounts(hubState = {}) {
   return { systemCount, headmateCount };
 }
 
+function getHubStateShowcase(hubState = {}) {
+  const normalizedHubState = normalizeHubState(hubState || {});
+  const { systemCount, headmateCount } = getHubStateCounts(normalizedHubState);
+  const systemNames = Object.entries(normalizedHubState.systemProfiles || {})
+    .map(([key, profile]) => String(profile?.name || key || '').trim())
+    .filter(Boolean);
+  const headmateNames = Object.values(normalizedHubState.headmateProfilesByUser || {}).flatMap((profiles) => {
+    return Object.entries(profiles || {})
+      .map(([key, profile]) => String(profile?.name || key || '').trim())
+      .filter(Boolean);
+  });
+
+  return {
+    systemCount,
+    headmateCount,
+    systemNames,
+    headmateNames,
+    activeSystem: String(normalizedHubState.activeUser || 'No system').trim() || 'No system'
+  };
+}
+
 function validateHubStateLimits(hubState = {}) {
   const { systemCount, headmateCount } = getHubStateCounts(hubState);
   if (systemCount > MAX_SYSTEMS_PER_ACCOUNT) {
@@ -271,6 +292,7 @@ function sanitizeUser(user, store = { users: {} }, viewerUsername = '') {
   safeUser.hubState = normalizeHubState(user.hubState || {});
   safeUser.friendProfiles = Object.entries(friends).map(([username, trustLevel]) => {
     const friend = store.users?.[username];
+    const showcase = getHubStateShowcase(friend?.hubState || {});
     return {
       username,
       name: friend?.name || username,
@@ -278,7 +300,12 @@ function sanitizeUser(user, store = { users: {} }, viewerUsername = '') {
       color: friend?.color || '#6c63ff',
       tags: friend?.tags || 'Not set',
       trustLevel: normalizeTrustLevel(trustLevel, 'friends'),
-      theirTrustLevel: normalizeTrustLevel(friend?.friends?.[user.username], '')
+      theirTrustLevel: normalizeTrustLevel(friend?.friends?.[user.username], ''),
+      systemCount: showcase.systemCount,
+      headmateCount: showcase.headmateCount,
+      systemNames: showcase.systemNames,
+      headmateNames: showcase.headmateNames,
+      activeSystem: showcase.activeSystem
     };
   });
   safeUser.viewerTrustLevel = viewerUsername && viewerUsername !== user.username
@@ -406,18 +433,26 @@ app.get('/api/accounts', authRequired, async (req, res) => {
 
   const accounts = Object.values(store.users || {})
     .filter(Boolean)
-    .map((user) => ({
-      username: user.username,
-      name: user.name || user.username,
-      description: user.description || 'No description set.',
-      tags: user.tags || 'Not set',
-      profilePhoto: user.profilePhoto || user.username?.[0]?.toUpperCase() || 'U',
-      color: user.color || '#6c63ff',
-      trustLevel: normalizeTrustLevel(viewer.friends?.[user.username], ''),
-      theirTrustLevel: normalizeTrustLevel(user.friends?.[viewerUsername], ''),
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt
-    }))
+    .map((user) => {
+      const showcase = getHubStateShowcase(user.hubState || {});
+      return {
+        username: user.username,
+        name: user.name || user.username,
+        description: user.description || 'No description set.',
+        tags: user.tags || 'Not set',
+        profilePhoto: user.profilePhoto || user.username?.[0]?.toUpperCase() || 'U',
+        color: user.color || '#6c63ff',
+        trustLevel: normalizeTrustLevel(viewer.friends?.[user.username], ''),
+        theirTrustLevel: normalizeTrustLevel(user.friends?.[viewerUsername], ''),
+        systemCount: showcase.systemCount,
+        headmateCount: showcase.headmateCount,
+        systemNames: showcase.systemNames,
+        headmateNames: showcase.headmateNames,
+        activeSystem: showcase.activeSystem,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      };
+    })
     .sort((a, b) => String(a.name || a.username).localeCompare(String(b.name || b.username)));
 
   return res.json({ accounts });
